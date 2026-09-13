@@ -1,0 +1,51 @@
+{
+  "name": "@alphagodzilla/pi-llm-provider-balance",
+  "version": "0.2.0",
+  "description": "pi 扩展：状态栏按当前 provider 显示对应账户余额（derouter 中转 / DeepSeek 官方），provider → 余额源映射可配置",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "coding-agent",
+    "derouter",
+    "deepseek",
+    "balance",
+    "status-bar"
+  ],
+  "license": "MIT",
+  "author": "AlphaGodzilla",
+  "type": "module",
+  "main": "index.ts",
+  "files": [
+    "index.ts",
+    "lib",
+    "README.md",
+    "config.example.json"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlphaGodzilla/pi-mono.git",
+    "directory": "packages/pi-llm-provider-balance"
+  },
+  "homepage": "https://github.com/AlphaGodzilla/pi-mono/tree/main/packages/pi-llm-provider-balance#readme",
+  "bugs": {
+    "url": "https://github.com/AlphaGodzilla/pi-mono/issues"
+  }
+}

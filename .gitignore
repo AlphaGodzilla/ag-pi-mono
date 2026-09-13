@@ -1,0 +1,7 @@
+node_modules/
+.DS_Store
+
+# 本机真实配置（含 API key），绝不入库；提交 config.example.json 即可
+packages/pi-llm-provider-balance/config.json
+
+*.log

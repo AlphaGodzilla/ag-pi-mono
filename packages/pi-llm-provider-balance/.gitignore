@@ -1,0 +1,6 @@
+# 本机真实配置：含 API key，绝不入库（提交 config.example.json 即可）
+config.json
+
+# macOS / 编辑器 / 依赖产物
+.DS_Store
+node_modules/

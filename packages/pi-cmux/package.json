@@ -1,0 +1,41 @@
+{
+  "name": "@alphagodzilla/pi-cmux",
+  "version": "0.1.0",
+  "description": "pi 扩展：cmux 集成（工作区/面板状态同步），以及权限 ask 与 ask_user_question 问卷弹窗的 cmux 通知",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "cmux",
+    "notification",
+    "status-bar"
+  ],
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlphaGodzilla/pi-mono.git",
+    "directory": "packages/pi-cmux"
+  },
+  "homepage": "https://github.com/AlphaGodzilla/pi-mono/tree/main/packages/pi-cmux#readme",
+  "bugs": {
+    "url": "https://github.com/AlphaGodzilla/pi-mono/issues"
+  }
+}

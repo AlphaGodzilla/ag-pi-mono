@@ -1,0 +1,11 @@
+{
+  "derouterClientKey": "sk-ant-YOUR_CLIENT_KEY",
+  "refreshIntervalMs": 60000,
+  "deepseekApiKey": "sk-YOUR_DEEPSEEK_API_KEY",
+  "providerBalanceSources": {
+    "cpa_arb": "derouter",
+    "cpa_mybitx": "derouter",
+    "cpa_mybitx_anthropic": "derouter",
+    "deepseek": "deepseek"
+  }
+}

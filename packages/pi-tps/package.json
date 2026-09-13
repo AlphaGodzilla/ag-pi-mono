@@ -1,0 +1,43 @@
+{
+  "name": "@alphagodzilla/pi-tps",
+  "version": "0.1.0",
+  "private": true,
+  "description": "pi 扩展：在 TUI 中实时显示 LLM 生成速度（MIN/MAX/CUR，tokens/s）",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "tps",
+    "tokens-per-second",
+    "status-bar"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlphaGodzilla/pi-mono.git",
+    "directory": "packages/pi-tps"
+  },
+  "homepage": "https://github.com/AlphaGodzilla/pi-mono/tree/main/packages/pi-tps#readme",
+  "bugs": {
+    "url": "https://github.com/AlphaGodzilla/pi-mono/issues"
+  }
+}

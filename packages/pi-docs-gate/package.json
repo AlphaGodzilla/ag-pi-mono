@@ -1,0 +1,40 @@
+{
+  "name": "@alphagodzilla/pi-docs-gate",
+  "version": "0.1.0",
+  "description": "pi 扩展:把内置系统提示词中硬编码的 Pi documentation 段落按需化(正常编码移除、~/.pi/agent 下引导 pi-docs skill),并在会话启动时按真实环境动态渲染 skill 中的 pi 包路径",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi"
+  ],
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlphaGodzilla/pi-mono.git",
+    "directory": "packages/pi-docs-gate"
+  },
+  "homepage": "https://github.com/AlphaGodzilla/pi-mono/tree/main/packages/pi-docs-gate#readme",
+  "bugs": {
+    "url": "https://github.com/AlphaGodzilla/pi-mono/issues"
+  }
+}

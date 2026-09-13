@@ -1,0 +1,43 @@
+{
+  "name": "@alphagodzilla/pi-gen-commit-msg-zh",
+  "version": "1.0.0",
+  "description": "pi 扩展包:交互式生成中文 git commit message(/gen-commit-msg-zh 命令 + 提交/调整/放弃三选),并附带一个可被启动时扫描到的规范型 skill(无人工审核、直接提交)",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "git",
+    "commit-message",
+    "chinese"
+  ],
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlphaGodzilla/pi-mono.git",
+    "directory": "packages/pi-gen-commit-msg-zh"
+  },
+  "homepage": "https://github.com/AlphaGodzilla/pi-mono/tree/main/packages/pi-gen-commit-msg-zh#readme",
+  "bugs": {
+    "url": "https://github.com/AlphaGodzilla/pi-mono/issues"
+  }
+}

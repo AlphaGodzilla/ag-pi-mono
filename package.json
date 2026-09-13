@@ -1,0 +1,24 @@
+{
+  "name": "pi-mono",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "pi 扩展单仓（pnpm workspace）：pi-cmux / pi-context-watchdog / pi-docs-gate / pi-gen-commit-msg-zh / pi-llm-provider-balance / pi-remote-notify / pi-tps",
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-tui": "0.85.1",
+    "@types/node": "22.20.1",
+    "jiti": "2.7.0",
+    "typescript": "6.0.3"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "@alphagodzilla/pi-context-watchdog",
+  "version": "0.1.0",
+  "description": "pi 扩展：上下文余量看门狗——每轮 turn 结束时按 contextWindow - reserveTokens 判定是否接近上限，提前向 LLM 注入收尾提示，并在阈值自动压缩后自动继续",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "context-window",
+    "compaction"
+  ],
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlphaGodzilla/pi-mono.git",
+    "directory": "packages/pi-context-watchdog"
+  },
+  "homepage": "https://github.com/AlphaGodzilla/pi-mono/tree/main/packages/pi-context-watchdog#readme",
+  "bugs": {
+    "url": "https://github.com/AlphaGodzilla/pi-mono/issues"
+  }
+}

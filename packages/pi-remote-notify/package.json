@@ -1,0 +1,44 @@
+{
+  "name": "@alphagodzilla/pi-remote-notify",
+  "version": "0.1.0",
+  "private": true,
+  "description": "pi 扩展：任务结束后通过飞书提醒，含最近一次工作总结；/remote-notify 切换开关",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "feishu",
+    "notification"
+  ],
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "test": "node test/run-test.mjs && node test/coexist-check.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.73.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlphaGodzilla/pi-mono.git",
+    "directory": "packages/pi-remote-notify"
+  },
+  "homepage": "https://github.com/AlphaGodzilla/pi-mono/tree/main/packages/pi-remote-notify#readme",
+  "bugs": {
+    "url": "https://github.com/AlphaGodzilla/pi-mono/issues"
+  }
+}
