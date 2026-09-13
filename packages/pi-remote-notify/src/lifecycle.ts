@@ -17,7 +17,7 @@
 import { join } from 'node:path'
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { logError } from './log.ts'
-import { safeNotify } from './notify.ts'
+import { retire, safeNotify } from './notify.ts'
 import { extractWorkSummary, formatTaskDoneSummary } from './summary.ts'
 
 const SUBAGENT_SESSION_DIR = join(getAgentDir(), 'subagents', 'sessions')
@@ -99,7 +99,11 @@ export default function registerLifecycle(pi: ExtensionAPI, deps: LifecycleDeps)
   })
 
   // 会话结束（尽力发送，可用 PI_FEISHU_NOTIFY_SESSION_END=0 关闭）
-  pi.on('session_shutdown', async (_event, ctx) => {
+  pi.on('session_shutdown', async (event, ctx) => {
+    // reload/quit 后本实例作废：其 `pi`/event bus 都已失效，继续发通知只会白等 10s 超时
+    // （new/resume/fork 不退休——同一实例还要给后续会话发通知）。
+    const reason = (event as { reason?: unknown } | undefined)?.reason
+    if (reason === 'reload' || reason === 'quit') retire()
     guard(() => {
       if (process.env.PI_FEISHU_NOTIFY_SESSION_END === '0') return
       if (!getEnabled()) return
