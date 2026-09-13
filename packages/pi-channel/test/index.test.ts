@@ -116,9 +116,10 @@ test("插件未加载时：sendViaBus 超时返回 ok:false（消费方零依赖
 	assert.equal(result.error?.code, "timeout");
 });
 
-test("生命周期钩子：注册 session_start / session_shutdown，inbound=false 时不建连接", async () => {
+test("生命周期：惰性启动（不注册 session_start）且注册 session_shutdown；inbound=false 时不建连", async () => {
 	const pi = makeFakePi();
-	assert.ok(pi.handlers.has("session_start"));
+	// 惰性：不注册 session_start —— 启动时不允许向飞书/Telegram 建连
+	assert.equal(pi.handlers.has("session_start"), false);
 	assert.ok(pi.handlers.has("session_shutdown"));
 
 	mkdirSync(dirname(CONFIG_PATH), { recursive: true });
@@ -144,15 +145,27 @@ test("生命周期钩子：注册 session_start / session_shutdown，inbound=fal
 	);
 });
 
-test("session_start 不阻塞 pi 的 /reload：handler 同步返回 undefined（不返回 Promise）", () => {
-	// pi 的 reload 会 `await` 每个 session_start handler，因此这里必须保持"发射即返回"：
-	// 真实连接（飞书长连接 ~2.6s、Telegram 长轮询 ~0.8s）在后台进行。
-	// 本用例的配置是 inbound:false，所以 connectAll 不会发起任何网络请求。
+test("惰性启动：工厂初始化后两个 provider 均未连接（启动零建连）", async () => {
 	rmSync(CONFIG_PATH, { force: true });
+	mkdirSync(dirname(CONFIG_PATH), { recursive: true });
+	writeFileSync(
+		CONFIG_PATH,
+		JSON.stringify({
+			feishu: { appId: "cli_test", appSecret: "secret", inbound: true, defaultReceiver: { type: "chat_id", value: "oc_x" } },
+			telegram: { botToken: "123:abc", inbound: true, defaultChatId: "-100" },
+		}),
+		"utf8",
+	);
 	const pi = makeFakePi();
-	const handler = pi.handlers.get("session_start");
-	assert.ok(handler, "应注册 session_start");
-	assert.equal(handler({ reason: "reload" }, uiCtx(pi.notices)), undefined);
+	const status = await statusViaBus(pi.events, 500);
+	assert.ok(status);
+	assert.deepEqual(
+		status.providers.map((p) => ({ provider: p.provider, configured: p.configured, connected: p.connected })),
+		[
+			{ provider: "feishu", configured: true, connected: false },
+			{ provider: "telegram", configured: true, connected: false },
+		],
+	);
 });
 
 test("/channel 命令：status 输出状态行，send 提示用户，reload 重载配置", async () => {

@@ -80,6 +80,10 @@ export default function piChannel(pi: ExtensionAPI): void {
 					});
 				}
 				const { messageId } = await feishu.send(req, cfg.feishu);
+				// 惰性唤醒：发送成功后才连该 provider 的入站通道。若在发送前 kick，长连接的 token 获取
+				// 会与本次 REST 调用相撞（实测首次发送 ~0.8s → ~8s）；放在之后既不影响出站时延，
+				// 也来得及在对方回复前把长连接建好。
+				ensureInbound("feishu");
 				lastErrors.delete("feishu");
 				return respond({ requestId: req.requestId, ok: true, messageId });
 			}
@@ -92,6 +96,7 @@ export default function piChannel(pi: ExtensionAPI): void {
 					});
 				}
 				const { messageId } = await telegram.send(req, cfg.telegram);
+				ensureInbound("telegram");
 				lastErrors.delete("telegram");
 				return respond({ requestId: req.requestId, ok: true, messageId });
 			}
@@ -126,6 +131,21 @@ export default function piChannel(pi: ExtensionAPI): void {
 				noteError("telegram", err);
 			}
 		}
+	}
+
+	/**
+	 * 惰性连接：只有真正要用的时候（消费方首次发请求）才连对应 provider 的入站通道。
+	 * 启动 / `session_start` 刻意不连——空转的 Telegram 长轮询与飞书长连接会白占网络与配额。
+	 * `inbound: false` = 永不需要入站，直接跳过；provider 的 `connect()` 自身幂等（重复调用不会重复建连）。
+	 */
+	function ensureInbound(provider: ChannelProvider): void {
+		if (provider === "feishu") {
+			if (!isFeishuConfigured(cfg) || cfg.feishu.inbound === false) return;
+			void feishu.connect(cfg.feishu, emitInbound).catch((err) => noteError("feishu", err));
+			return;
+		}
+		if (!isTelegramConfigured(cfg) || cfg.telegram.inbound === false) return;
+		void telegram.connect(cfg.telegram, emitInbound).catch((err) => noteError("telegram", err));
 	}
 
 	async function closeAll(): Promise<void> {
@@ -176,12 +196,9 @@ export default function piChannel(pi: ExtensionAPI): void {
 	});
 
 	// ---- 连接生命周期 ----
-	pi.on("session_start", () => {
-		// 刻意**不 await**：pi 的 /reload 会 await 所有 session_start handler，而这里要建飞书长连接
-		// （实测 2.6s）与 Telegram 长轮询（0.8s），阻塞会让 TUI 的输入区消失数秒。
-		// 连接是后台过程：出站不依赖它，入站事件晚几百毫秒到达无影响。
-		void connectAll();
-	});
+	// 刻意**不注册** `session_start` 连接钩子：连 provider 的时间点由 `ensureInbound()` 决定
+	// （首次发送请求时），避免启动即向飞书/Telegram 建连。
+	// 注：pi 的 /reload 会逐个 await session_start handler，所以真要做连接也该是 fire-and-forget。
 
 	pi.on("session_shutdown", async (event) => {
 		// new/resume/fork 不拆连接：同一进程内后续会话还要用。
