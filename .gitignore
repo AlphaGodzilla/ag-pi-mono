@@ -5,3 +5,6 @@ node_modules/
 packages/pi-llm-provider-balance/config.json
 
 *.log
+
+# pi-docs-gate 的 compare-system-prompt.mjs 对比产物（开发期临时文件）
+packages/pi-docs-gate/*-system-prompt*.md

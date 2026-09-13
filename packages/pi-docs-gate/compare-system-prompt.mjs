@@ -2,7 +2,7 @@
  * 对比 pi-docs-gate 扩展开启前后的系统提示词差异
  *
  * 用法: node compare-system-prompt.mjs
- * 输出: ./pi-docs-gate/*.md(开启前/开启后×两种 cwd)+ 终端 diff
+ * 输出: 本包目录下 *.md(开启前/开启后×两种 cwd)+ 终端 diff
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, dirname, sep } from "node:path";
@@ -39,6 +39,7 @@ const { buildSystemPrompt } = await import(join(piPkgDir, "dist", "core", "syste
 const AGENT_DIR = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
 const PI_DOCS_CWD = AGENT_DIR;
 
+const PKG_DIR = import.meta.dirname; // 本包目录(脚本与包资源同根, 输出与 skills 都相对它解析)
 // ---------- 1. 向上查找 AGENTS.md(模拟 resource-loader 的 loadContextFileFromDir) ----------
 function findAgentsFile(startDir) {
 	let dir = resolve(startDir);
@@ -125,7 +126,7 @@ function buildPrompt(cwd) {
 
 	const globalSkills = scanSkills([
 		join(AGENT_DIR, "skills"),
-		join(AGENT_DIR, "pi-docs-gate", "skills"), // pi-docs skill 随包(pi-docs-gate/skills)
+		join(PKG_DIR, "skills"), // pi-docs skill 随包(本包 skills/)
 		join(homedir(), ".claude", "skills"),
 		join(cwd, ".pi", "skills"),
 	]);
@@ -150,7 +151,7 @@ const beforeOther = buildPrompt(cwdOther);
 const afterOther = applyGate(beforeOther, cwdOther);
 
 // ---------- 6. 输出 ----------
-const outDir = join(AGENT_DIR, "pi-docs-gate");
+const outDir = PKG_DIR;
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, "before-system-prompt.md"), beforePiAgent);
 writeFileSync(join(outDir, "after-system-prompt-cwd-pi-agent.md"), afterPiAgent);
