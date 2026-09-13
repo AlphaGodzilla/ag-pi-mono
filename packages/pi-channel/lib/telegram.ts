@@ -26,6 +26,12 @@ const API_BASE = "https://api.telegram.org";
 /** Telegram getUpdates 服务端长轮询上限是 50 秒。 */
 const DEFAULT_POLL_TIMEOUT_SEC = 50;
 const DEFAULT_RETRY_DELAY_MS = 1_000;
+/**
+ * getUpdates 409（同一 token 上有另一个 poller）的重试间隔。
+ * /reload 时新旧实例短暂重叠是常态（旧实例 ~1s 内关掉），所以 409 不致命；
+ * 若确实是别的进程长期占用，日志会按这个间隔持续提示。
+ */
+const CONFLICT_RETRY_MS = 3_000;
 /** close() 等待在途请求的上限；超过就放弃等待，让轮询循环自己看到 active=false 后退出。 */
 const CLOSE_GRACE_MS = 1_000;
 /** callback_query 未携带 ackText 时的默认回执文案。 */
@@ -160,6 +166,8 @@ export type TelegramProviderDeps = {
 	pollTimeoutSec?: number;
 	/** 瞬时错误后的重试退避。默认 1000ms。 */
 	retryDelayMs?: number;
+	/** getUpdates 409（同一 token 有另一个 poller）的重试间隔。默认 3000ms；测试用小值。 */
+	conflictRetryMs?: number;
 };
 
 export type TelegramProvider = {
@@ -260,6 +268,7 @@ class TelegramProviderImpl implements TelegramProvider {
 	private readonly log: (msg: string) => void;
 	private readonly pollTimeoutSec: number;
 	private readonly retryDelayMs: number;
+	private readonly conflictRetryMs: number;
 
 	private active = false;
 	private polling = false;
@@ -278,6 +287,7 @@ class TelegramProviderImpl implements TelegramProvider {
 		this.log = deps.log ?? (() => undefined);
 		this.pollTimeoutSec = deps.pollTimeoutSec ?? DEFAULT_POLL_TIMEOUT_SEC;
 		this.retryDelayMs = deps.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+		this.conflictRetryMs = deps.conflictRetryMs ?? CONFLICT_RETRY_MS;
 	}
 
 	async send(req: TelegramSendRequest, cfg: TelegramChannelConfig): Promise<{ messageId: string }> {
@@ -417,13 +427,20 @@ class TelegramProviderImpl implements TelegramProvider {
 		if (data.ok !== true) {
 			const code = asFiniteNumber(data.error_code) ?? res.status;
 			const desc = describeFailure(data);
-			if (code === 401 || code === 409) {
-				// 401 = token 错 / 409 = 同一 token 有另一个 poller：重试没有意义，停下来
-				const reason = code === 401 ? "bad bot token" : "another poller is using this bot token";
-				const line = `telegram getUpdates fatal (${code}) — ${reason}: ${desc}; polling stopped`;
+			if (code === 401) {
+				// 401 = token 错：重试没有意义，停下来
+				const line = `telegram getUpdates fatal (401) — bad bot token: ${desc}; polling stopped`;
 				this.log(line);
 				logError(line);
 				return "stop";
+			}
+			if (code === 409) {
+				// 409 = 同一 token 上有另一个 poller：/reload 时新旧实例短暂重叠属正常（旧实例会在 ~1s 内关掉），
+				// 所以退避重试而不是停掉——直接停会让新实例的入站永久失效。若确实是别的进程长期占用，
+				// 日志会按这个间隔持续提示。
+				this.log(`telegram getUpdates conflict (409) — another poller holds the token; retrying in ${this.conflictRetryMs}ms`);
+				await sleep(this.conflictRetryMs);
+				return "continue";
 			}
 			this.log(`getUpdates transient error (${code}): ${desc} — retrying`);
 			await sleep(this.retryDelayMs);

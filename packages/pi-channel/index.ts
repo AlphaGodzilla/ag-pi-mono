@@ -178,16 +178,20 @@ export default function piChannel(pi: ExtensionAPI): void {
 	// ---- 连接生命周期 ----
 	pi.on("session_start", () => {
 		// 刻意**不 await**：pi 的 /reload 会 await 所有 session_start handler，而这里要建飞书长连接
-		// （实测 2.3s）与 Telegram 长轮询（0.7s），阻塞会让 TUI 的输入区消失数秒。
+		// （实测 2.6s）与 Telegram 长轮询（0.8s），阻塞会让 TUI 的输入区消失数秒。
 		// 连接是后台过程：出站不依赖它，入站事件晚几百毫秒到达无影响。
 		void connectAll();
 	});
 
 	pi.on("session_shutdown", async (event) => {
-		// 会话结束（new/resume/fork）不拆连接：同一进程内后续会话还要用；
-		// 只有真正退出进程时才断开，避免残留 websocket。
+		// new/resume/fork 不拆连接：同一进程内后续会话还要用。
+		// reload 会替换扩展模块实例，旧实例的连接必须关掉——否则 Telegram 出现两个 poller 抢同一
+		// token（实测 409 冲突、新实例入站失效），飞书也会多留一条长连接。
+		// reload 路径刻意**不 await**：关连接有 ~0.4-1s 收尾（飞书 ack 冲刷 + tg 宽限），等待会重新
+		// 拉长 /reload 的输入区缺失窗口；后台关闭 + 409 退避重试兜底即可。
 		const reason = (event as { reason?: unknown } | undefined)?.reason;
 		if (reason === "quit") await closeAll();
+		else if (reason === "reload") void closeAll();
 	});
 
 	// ---- 命令 ----

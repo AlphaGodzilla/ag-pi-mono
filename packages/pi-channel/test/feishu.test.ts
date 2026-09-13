@@ -63,6 +63,9 @@ function makeChannel() {
 	const channel: FeishuChannelLike = {
 		connect: async () => {
 			lifecycle.push("connect");
+			// 模拟真 SDK：WS client（含 eventDispatcher）在 connect 时才创建——
+			// 这样"ack 注入必须在 connect 之后"这条约束才有测试兜底。
+			(channel as { rawWsClient?: unknown }).rawWsClient = { eventDispatcher: dispatcher };
 		},
 		disconnect: async () => {
 			lifecycle.push("disconnect");
@@ -73,7 +76,6 @@ function makeChannel() {
 				handlers[event] = (handlers[event] ?? []).filter((h) => h !== handler);
 			};
 		},
-		rawWsClient: { eventDispatcher: dispatcher },
 	};
 	return { channel, handlers, lifecycle, dispatcher };
 }

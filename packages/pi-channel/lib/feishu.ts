@@ -259,9 +259,12 @@ export function createFeishuProvider(deps: FeishuProviderDeps = {}): FeishuProvi
 				policy: { requireMention: cfg.requireMention, dmMode: cfg.dmMode },
 			});
 			channelKey = key;
-			installCardCallbackResponder(channel, log);
 			subscribe(onInbound);
 			await channel.connect();
+			// ack 注入必须放在 connect() **之后**：SDK 在 connect 时才创建 WS dispatcher，
+			// 之前装拿不到 eventDispatcher.invoke，会打出 "card callback responder not installed"，
+			// 卡片点击的 3s ack（toast）随之失效（ask-user-question 的老实现也是先 connect 再装）。
+			installCardCallbackResponder(channel, log);
 			connected = true;
 			return;
 		}

@@ -400,26 +400,54 @@ test("长轮询: ack 失败只记日志，不影响 inbound 投递", async (t) =
 	assert.equal(events[0]?.kind, "action");
 });
 
-for (const code of [401, 409] as const) {
-	test(`长轮询: ${code} 致命错误后停止轮询`, async (t) => {
-		const logged: string[] = [];
-		const { fetch, calls } = makeFetch(() => ({
-			status: code,
-			body: { ok: false, error_code: code, description: code === 401 ? "Unauthorized" : "Conflict" },
-		}));
-		const provider = createTelegramProvider({ fetch, log: (m) => logged.push(m), pollTimeoutSec: 1, retryDelayMs: 5 });
-		t.after(() => provider.close());
+test("长轮询: 401 致命错误后停止轮询", async (t) => {
+	const logged: string[] = [];
+	const { fetch, calls } = makeFetch(() => ({
+		status: 401,
+		body: { ok: false, error_code: 401, description: "Unauthorized" },
+	}));
+	const provider = createTelegramProvider({ fetch, log: (m) => logged.push(m), pollTimeoutSec: 1, retryDelayMs: 5 });
+	t.after(() => provider.close());
 
-		await provider.connect(tgCfg(), () => {
-			throw new Error("no inbound expected");
-		});
-		await waitFor(() => provider.status().connected === false);
-		const settled = calls.filter((c) => c.method === "getUpdates").length;
-		await sleep(30);
-		assert.equal(calls.filter((c) => c.method === "getUpdates").length, settled);
-		assert.ok(logged.some((m) => m.includes(`fatal (${code})`)));
+	await provider.connect(tgCfg(), () => {
+		throw new Error("no inbound expected");
 	});
-}
+	await waitFor(() => provider.status().connected === false);
+	const settled = calls.filter((c) => c.method === "getUpdates").length;
+	await sleep(30);
+	assert.equal(calls.filter((c) => c.method === "getUpdates").length, settled);
+	assert.ok(logged.some((m) => m.includes("fatal (401)")));
+});
+
+test("长轮询: 409 冲突（reload 新旧实例重叠）退避重试，冲突消失后继续轮询", async (t) => {
+	const logged: string[] = [];
+	let polls = 0;
+	const { fetch, calls } = makeFetch((method) => {
+		if (method !== "getUpdates") return { body: { ok: true, result: true } };
+		polls += 1;
+		if (polls === 1) {
+			return {
+				status: 409,
+				body: { ok: false, error_code: 409, description: "Conflict: terminated by other getUpdates request" },
+			};
+		}
+		return { body: { ok: true, result: [] } };
+	});
+	const provider = createTelegramProvider({
+		fetch,
+		log: (m) => logged.push(m),
+		pollTimeoutSec: 1,
+		retryDelayMs: 5,
+		conflictRetryMs: 5,
+	});
+	t.after(() => provider.close());
+
+	await provider.connect(tgCfg(), () => {});
+	await waitFor(() => calls.filter((c) => c.method === "getUpdates").length >= 2);
+	assert.ok(logged.some((m) => m.includes("conflict (409)")), "应记录 409 冲突");
+	assert.ok(!logged.some((m) => m.includes("polling stopped")), "409 不应停掉轮询");
+	assert.equal(provider.status().connected, true);
+});
 
 test("长轮询: 瞬时错误退避后继续重试", async (t) => {
 	let polls = 0;

@@ -72,6 +72,9 @@ if (!result.ok) logError(`${result.error?.code}: ${result.error?.message}`);
 
 - **`session_start` 里的连接是后台的、绝不 `await`**：pi 的 `/reload` 会逐个 `await` 所有扩展的 `session_start` handler（`agent-session.reload()`），而建飞书长连接实测 ~2.6s、Telegram 长轮询 ~0.8s——阻塞会让 TUI 的输入区消失数秒（实测修复前 ≈3s → 修复后 9ms）。连接结果看 `/channel status`；出站不依赖连接。
 - **飞书 SDK 的日志必须静音**：SDK 默认把 `[info]` 级日志（含长连接使用说明的整段横幅与 `[ws] ws client ready`）写到 stdout，在 pi TUI 里会**直接渲染进输入区**。因此给 `Client` 与 `createLarkChannel` 都传一个空实现的 `logger`，我们只写自己的 `error.log`。
+- **`reload` 时必须让旧实例收尾**：`session_shutdown(reason === "reload")` 触发 `void closeAll()`（`new`/`resume`/`fork` 不关，同一实例还要给后续会话用）。不关会留下僵尸长连接/长轮询——Telegram 上两个 poller 抢同一 token，日志出现 `409 conflict` 且旧版会让轮询停摆。关闭刻意**不 `await`**，避免重新拖长 reload。
+- **Telegram 的 409 冲突按可重试处理**：`/reload` 新旧重叠是常态，409（`Conflict: terminated by other getUpdates request`）按 `conflictRetryMs`（默认 3s）退避重试；只有 401（token 错）才停止轮询。
+- **飞书卡片 ack 注入必须在 `await channel.connect()` 之后**：SDK 在 connect 时才创建 WS `eventDispatcher`，之前装会静默失败（日志 `card callback responder not installed`），卡片点击的 3s toast 随之失效。
 
 ## 能力来源与迁移
 
