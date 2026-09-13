@@ -176,8 +176,11 @@ export default function piChannel(pi: ExtensionAPI): void {
 	});
 
 	// ---- 连接生命周期 ----
-	pi.on("session_start", async () => {
-		await connectAll();
+	pi.on("session_start", () => {
+		// 刻意**不 await**：pi 的 /reload 会 await 所有 session_start handler，而这里要建飞书长连接
+		// （实测 2.3s）与 Telegram 长轮询（0.7s），阻塞会让 TUI 的输入区消失数秒。
+		// 连接是后台过程：出站不依赖它，入站事件晚几百毫秒到达无影响。
+		void connectAll();
 	});
 
 	pi.on("session_shutdown", async (event) => {

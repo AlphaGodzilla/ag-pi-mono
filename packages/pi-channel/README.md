@@ -68,6 +68,11 @@ if (!result.ok) logError(`${result.error?.code}: ${result.error?.message}`);
 | `/channel reload` | 重载 `config.json` 并重建连接 |
 | `/channel send <文本>` | 用缺省收件人做一次真实发送，验证链路 |
 
+## 实现注意（TUI 安全）
+
+- **`session_start` 里的连接是后台的、绝不 `await`**：pi 的 `/reload` 会逐个 `await` 所有扩展的 `session_start` handler（`agent-session.reload()`），而建飞书长连接实测 ~2.6s、Telegram 长轮询 ~0.8s——阻塞会让 TUI 的输入区消失数秒（实测修复前 ≈3s → 修复后 9ms）。连接结果看 `/channel status`；出站不依赖连接。
+- **飞书 SDK 的日志必须静音**：SDK 默认把 `[info]` 级日志（含长连接使用说明的整段横幅与 `[ws] ws client ready`）写到 stdout，在 pi TUI 里会**直接渲染进输入区**。因此给 `Client` 与 `createLarkChannel` 都传一个空实现的 `logger`，我们只写自己的 `error.log`。
+
 ## 能力来源与迁移
 
 - 飞书与 Telegram 的传输层自 `@juicesharp/rpiv-ask-user-question` 移植（2026-09-13）：`remote/feishu-channel.ts`（长连接、卡片回调 3s ack 注入、ack 后 400ms 再断连）、`remote/tg-channel.ts` + `remote/tg-http.ts`（零依赖 HTTP + 代理、长轮询去重）。

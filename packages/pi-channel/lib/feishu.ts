@@ -11,10 +11,23 @@
  * 出站刻意走裸 `Client`（`im.v1.message.create` / `patch`，与 SDK 的 `Channel.send` /
  * `updateCard` 同一底层调用），这样无需长连接也能发消息、更新卡片，并拿到 `message_id`。
  */
-import { Client, createLarkChannel, Domain, type LarkChannel } from "@larksuiteoapi/node-sdk";
+import { Client, createLarkChannel, Domain, type Logger, type LarkChannel } from "@larksuiteoapi/node-sdk";
 import { maskAccount, type FeishuChannelConfig } from "./config.ts";
 import { readAckText, type ChannelInboundEvent, type FeishuSendRequest } from "./events.ts";
 import { logError } from "./log.ts";
+
+/**
+ * SDK 默认把自己 `[info]` 级别的日志打到 stdout —— 包括长连接使用说明的整段横幅与
+ * `[ws] ws client ready`。在 pi TUI 里这些会直接渲染进输入区（实测截图确认），因此全部静音；
+ * 我们只写自己的 error.log。这也与 SDK 的 `loggerLevel` 无关：给一个空实现就完全接管。
+ */
+const silentLogger: Logger = {
+	error() {},
+	warn() {},
+	info() {},
+	debug() {},
+	trace() {},
+};
 
 /** 出站所需的最小 client 形状（测试注入假实现，避免真 SDK 请求）。 */
 export type FeishuClientLike = {
@@ -130,7 +143,7 @@ function installCardCallbackResponder(channel: FeishuChannelLike, log: (msg: str
 
 export function createFeishuProvider(deps: FeishuProviderDeps = {}): FeishuProvider {
 	const log = deps.log ?? logError;
-	const makeClient = deps.createClient ?? ((opts) => new Client(opts) as unknown as FeishuClientLike);
+	const makeClient = deps.createClient ?? ((opts) => new Client({ ...opts, logger: silentLogger }) as unknown as FeishuClientLike);
 	const makeChannel =
 		deps.createChannel ??
 		((opts) =>
@@ -139,6 +152,7 @@ export function createFeishuProvider(deps: FeishuProviderDeps = {}): FeishuProvi
 				appSecret: opts.appSecret,
 				domain: opts.domain,
 				policy: opts.policy,
+				logger: silentLogger,
 			}) as unknown as FeishuChannelLike);
 
 	/** 出站 client 按 appId 缓存：同一进程内不同应用各自一份 */

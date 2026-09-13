@@ -144,6 +144,17 @@ test("生命周期钩子：注册 session_start / session_shutdown，inbound=fal
 	);
 });
 
+test("session_start 不阻塞 pi 的 /reload：handler 同步返回 undefined（不返回 Promise）", () => {
+	// pi 的 reload 会 `await` 每个 session_start handler，因此这里必须保持"发射即返回"：
+	// 真实连接（飞书长连接 ~2.6s、Telegram 长轮询 ~0.8s）在后台进行。
+	// 本用例的配置是 inbound:false，所以 connectAll 不会发起任何网络请求。
+	rmSync(CONFIG_PATH, { force: true });
+	const pi = makeFakePi();
+	const handler = pi.handlers.get("session_start");
+	assert.ok(handler, "应注册 session_start");
+	assert.equal(handler({ reason: "reload" }, uiCtx(pi.notices)), undefined);
+});
+
 test("/channel 命令：status 输出状态行，send 提示用户，reload 重载配置", async () => {
 	rmSync(CONFIG_PATH, { force: true });
 	const pi = makeFakePi();
