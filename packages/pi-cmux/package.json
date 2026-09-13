@@ -13,9 +13,6 @@
   "private": true,
   "type": "module",
   "main": "index.ts",
-  "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
-  },
   "pi": {
     "extensions": [
       "./index.ts"

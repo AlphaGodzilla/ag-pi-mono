@@ -13,8 +13,7 @@
   "type": "module",
   "main": "index.ts",
   "scripts": {
-    "test": "node test/run-test.mjs && node test/coexist-check.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "test": "node test/run-test.mjs && node test/coexist-check.mjs"
   },
   "pi": {
     "extensions": [

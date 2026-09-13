@@ -23,8 +23,7 @@
     "config.example.json"
   ],
   "scripts": {
-    "test": "node --test test/*.test.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "test": "node --test test/*.test.ts"
   },
   "pi": {
     "extensions": [

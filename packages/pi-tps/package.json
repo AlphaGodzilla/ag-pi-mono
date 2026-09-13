@@ -15,8 +15,7 @@
   "type": "module",
   "main": "index.ts",
   "scripts": {
-    "test": "node --test",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "test": "node --test"
   },
   "pi": {
     "extensions": [

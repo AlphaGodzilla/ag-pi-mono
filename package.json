@@ -9,7 +9,7 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "pnpm -r test",
     "check": "pnpm typecheck && pnpm test"
   },

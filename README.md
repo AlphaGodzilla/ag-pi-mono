@@ -19,14 +19,15 @@ pi 扩展单仓（monorepo）。原先分散在 `~/.pi/agent/` 下的 7 个本�
 ```bash
 pnpm install          # 安装全部 workspace 依赖
 pnpm check            # typecheck + test（全部包）
-pnpm -r typecheck     # 只跑类型检查
-pnpm -r test          # 只跑测试
+pnpm typecheck        # 只跑类型检查（根单份 tsconfig，一个 tsc 覆盖 packages/**/*.ts）
+pnpm -r test          # 只跑有 test 脚本的包
 pnpm --filter @alphagodzilla/pi-tps test   # 单包
 ```
 
 - Node `>=22.18`：测试直接用 `node --test` 跑 `.ts`（依赖内置 type stripping），无需构建。
 - 依赖分层：`typescript`、`@types/node`、`@earendil-works/pi-ai|pi-coding-agent|pi-tui`（0.85.1）、`jiti` 放在根 `devDependencies`；各包只声明 `peerDependencies`（`@earendil-works/pi-coding-agent`，`optional`）与自身运行时依赖。
 - 若 pnpm 提示 `Ignored build scripts`（esbuild / protobufjs / @google/genai），可忽略：它们只是 pi 包的类型/测试依赖，运行用的是 pi 自带预构建产物；确实需要时执行 `pnpm approve-builds`。
+- tsconfig 只有**根一份** `tsconfig.json`（`include: packages/**/*.ts`）：各包不再有 `tsconfig.json`，也没有 `typecheck` 脚本；新增包只要放在 `packages/*` 下就会被自动纳入类型检查。
 
 ## 与 pi 的关系（加载方式）
 
@@ -52,7 +53,7 @@ pi 通过 `~/.pi/agent/settings.json` 的 `packages` 数组按路径加载本地
 
 - 本仓为全新 git 仓库，不带原 7 个目录的历史；原目录及其 `.git` 未改动，仍留在 `~/.pi/agent/` 下。
 - 包名统一为 `@alphagodzilla/pi-*`，`repository`/`homepage`/`bugs` 指向本单仓。
-- 新增 `tsconfig.base.json` 与各包 `tsconfig.json`（原先只有 `pi-llm-provider-balance` 有）。
+- 类型检查统一到根目录单份 `tsconfig.json`（`include: packages/**/*.ts`）：原先只有 `pi-llm-provider-balance` 有 tsconfig，迁移时先给每包加了一份，随后按要求改为只保留根一份。
 - 迁移时修掉两处此前未暴露的严格类型问题：`pi-tps` 的 `firstDeltaAt` 显式收敛；`pi-remote-notify` 的 `extractWorkSummary` 参数放宽为 `Pick<SessionManager, 'getBranch'>`（`ctx.sessionManager` 是 `ReadonlySessionManager`）。
 - 测试/验证脚本去掉本机绝对路径：`jiti` 与 `@earendil-works/pi-*` 改从工作区依赖解析（`PI_DIST` 可覆盖）。
 - `pi-remote-notify` 的测试改为把 agent 目录指向临时目录（`PI_CODING_AGENT_DIR`）：原先 toggle 测试会删改真实的 `~/.pi/agent/feishu/remote-notify-state.json`（即 `/remote-notify` 的开关状态），现在不再触碰。
