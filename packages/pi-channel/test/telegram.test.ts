@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TelegramChannelConfig } from "../lib/config.ts";
 import { maskAccount } from "../lib/config.ts";
-import type { ChannelInboundEvent, ChannelSendRequest } from "../lib/events.ts";
+import type { ChannelInboundEvent } from "../lib/events.ts";
 import { classifyTelegramError, createTelegramProvider, type TgFetch } from "../lib/telegram.ts";
 
 const AGENT_DIR = mkdtempSync(join(tmpdir(), "pi-channel-telegram-test-"));
@@ -48,8 +48,11 @@ function tgCfg(over: Partial<TelegramChannelConfig> = {}): TelegramChannelConfig
 	return { botToken: "TEST_TOKEN", inbound: true, ...over };
 }
 
-function sendReq(over: Partial<ChannelSendRequest> = {}): ChannelSendRequest {
-	return { requestId: "req-1", provider: "telegram", kind: "text", text: "hello", ...over };
+/** provider.send 的入参（按 provider 判别的联合）；测试里用宽松构造器 + 断言，避免逐字段写全 */
+type TgRequest = Parameters<ReturnType<typeof createTelegramProvider>["send"]>[0];
+
+function sendReq(over: Record<string, unknown> = {}): TgRequest {
+	return { requestId: "req-1", provider: "telegram", kind: "text", text: "hello", ...over } as unknown as TgRequest;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -101,18 +104,18 @@ test("send: 卡片走 sendMessage 并把 card 序列化进 reply_markup", async 
 	const card = { inline_keyboard: [[{ text: "A", callback_data: '{"q":"0","o":"1"}' }]] };
 	const { fetch, calls } = makeFetch(() => ({ body: { ok: true, result: { message_id: 6, chat: { id: -100123 } } } }));
 	const provider = createTelegramProvider({ fetch });
-	const sent = await provider.send(sendReq({ kind: "card", text: "pick one", card }), tgCfg({ defaultChatId: "-100123" }));
+	const sent = await provider.send(sendReq({ kind: "card", text: "pick one", telegramKeyboard: card }), tgCfg({ defaultChatId: "-100123" }));
 	assert.deepEqual(sent, { messageId: "6" });
 	assert.equal(calls[0]?.method, "sendMessage");
 	assert.equal(calls[0]?.body.reply_markup, JSON.stringify(card));
 });
 
-test("send: update + 仅 card 走 editMessageReplyMarkup，返回请求里的 messageId", async () => {
+test("send: update + 仅键盘走 editMessageReplyMarkup（kind=keyboard），返回请求里的 messageId", async () => {
 	const card = { inline_keyboard: [] };
 	const { fetch, calls } = okFetch();
 	const provider = createTelegramProvider({ fetch });
 	const sent = await provider.send(
-		sendReq({ to: { id: "-100123" }, update: { messageId: "42" }, text: undefined, card }),
+		sendReq({ to: { id: "-100123" }, kind: "keyboard", update: { messageId: "42" }, telegramKeyboard: card }),
 		tgCfg(),
 	);
 	assert.deepEqual(sent, { messageId: "42" });
@@ -139,17 +142,17 @@ test("send: update + text + card 走 editMessageText 并同时更新键盘", asy
 	const card = { inline_keyboard: [] };
 	const { fetch, calls } = okFetch();
 	const provider = createTelegramProvider({ fetch });
-	await provider.send(sendReq({ to: { id: "-100123" }, update: { messageId: "42" }, text: "done", card }), tgCfg());
+	await provider.send(sendReq({ to: { id: "-100123" }, kind: "card", update: { messageId: "42" }, text: "done", telegramKeyboard: card }), tgCfg());
 	assert.equal(calls[0]?.method, "editMessageText");
 	assert.equal(calls[0]?.body.text, "done");
 	assert.equal(calls[0]?.body.reply_markup, JSON.stringify(card));
 });
 
-test("send: update 既无 text 又无 card 时抛 invalid_request，不发请求", async () => {
+test("send: kind=keyboard 但缺 update 时抛 invalid_request，不发请求", async () => {
 	const { fetch, calls } = okFetch();
 	const provider = createTelegramProvider({ fetch });
 	await assert.rejects(
-		provider.send(sendReq({ update: { messageId: "42" }, text: undefined }), tgCfg({ defaultChatId: "-1" })),
+		provider.send(sendReq({ kind: "keyboard", update: undefined, telegramKeyboard: { inline_keyboard: [] } }), tgCfg({ defaultChatId: "-1" })),
 		(err: unknown) => {
 			assert.equal(classifyTelegramError(err).code, "invalid_request");
 			return true;

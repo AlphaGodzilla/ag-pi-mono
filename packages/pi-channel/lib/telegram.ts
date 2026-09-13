@@ -18,7 +18,7 @@ import { request as httpsRequest } from "node:https";
 import { type TLSSocket, connect as tlsConnect } from "node:tls";
 import type { TelegramChannelConfig } from "./config.ts";
 import { maskAccount } from "./config.ts";
-import type { ChannelInboundEvent, ChannelSendRequest } from "./events.ts";
+import type { ChannelInboundEvent, TelegramSendRequest } from "./events.ts";
 import { readAckText } from "./events.ts";
 import { logError } from "./log.ts";
 
@@ -163,7 +163,7 @@ export type TelegramProviderDeps = {
 };
 
 export type TelegramProvider = {
-	send(req: ChannelSendRequest, cfg: TelegramChannelConfig): Promise<{ messageId: string }>;
+	send(req: TelegramSendRequest, cfg: TelegramChannelConfig): Promise<{ messageId: string }>;
 	/** 启动长轮询接收入站事件；幂等，重复调用不会起第二个轮询循环。 */
 	connect(cfg: TelegramChannelConfig, onInbound: (evt: ChannelInboundEvent) => void): Promise<void>;
 	close(): Promise<void>;
@@ -280,37 +280,44 @@ class TelegramProviderImpl implements TelegramProvider {
 		this.retryDelayMs = deps.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 	}
 
-	async send(req: ChannelSendRequest, cfg: TelegramChannelConfig): Promise<{ messageId: string }> {
+	async send(req: TelegramSendRequest, cfg: TelegramChannelConfig): Promise<{ messageId: string }> {
 		const target = req.to?.id ?? cfg.defaultChatId;
+		// 类型上已排除（kind=card 必带 telegramKeyboard）；这里是 JS 调用方（跨扩展事件）的兜底
+		if (req.kind === "card" && req.telegramKeyboard === undefined) {
+			throw new TgChannelError("invalid_request", "telegram card request needs telegramKeyboard");
+		}
 		if (!target) {
 			throw new TgChannelError("no_target", "telegram send needs to.id or cfg.defaultChatId");
 		}
 
 		if (req.update) {
 			const { messageId } = req.update;
-			// 有 text 时用 editMessageText：它也能带 reply_markup，一次请求同时改正文与键盘，
-			// 比 editMessageReplyMarkup 表达力更强；只有 card（改键盘）时才退而用后者。
-			if (req.text !== undefined) {
-				const body: Record<string, unknown> = { chat_id: target, message_id: messageId, text: req.text };
-				if (req.card !== undefined) body.reply_markup = JSON.stringify(req.card);
-				if (req.parseMode !== undefined) body.parse_mode = req.parseMode;
-				await this.callApi(cfg, "editMessageText", body);
-				return { messageId };
-			}
-			if (req.card !== undefined) {
+			// 只换键盘（kind=keyboard）：editMessageReplyMarkup，不动正文
+			if (req.kind === "keyboard") {
 				await this.callApi(cfg, "editMessageReplyMarkup", {
 					chat_id: target,
 					message_id: messageId,
-					reply_markup: JSON.stringify(req.card),
+					reply_markup: JSON.stringify(req.telegramKeyboard),
 				});
 				return { messageId };
 			}
-			throw new TgChannelError("invalid_request", "telegram update needs text and/or card");
+			// 改正文（kind=card 时同时换键盘）：editMessageText 一次请求即可，
+			// 比 editMessageReplyMarkup 表达力更强。
+			const body: Record<string, unknown> = { chat_id: target, message_id: messageId, text: req.text };
+			if (req.kind === "card") body.reply_markup = JSON.stringify(req.telegramKeyboard);
+			if (req.parseMode !== undefined) body.parse_mode = req.parseMode;
+			await this.callApi(cfg, "editMessageText", body);
+			return { messageId };
+		}
+
+		// 类型上不可达（keyboard 必带 update，已在上面的分支 return）；这里是 JS 调用方的兜底
+		if (req.kind === "keyboard") {
+			throw new TgChannelError("invalid_request", "telegram keyboard request needs update.messageId");
 		}
 
 		const body: Record<string, unknown> = { chat_id: target, text: req.text ?? "" };
 		if (req.parseMode !== undefined) body.parse_mode = req.parseMode;
-		if (req.kind === "card") body.reply_markup = JSON.stringify(req.card);
+		if (req.kind === "card") body.reply_markup = JSON.stringify(req.telegramKeyboard);
 		const result = await this.callApi(cfg, "sendMessage", body);
 		const messageId = asFiniteNumber(asRecord(result)?.message_id);
 		if (messageId === undefined) {

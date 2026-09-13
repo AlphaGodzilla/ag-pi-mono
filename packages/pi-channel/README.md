@@ -6,7 +6,7 @@ pi 的**外部通信 channel 插件**：独占 provider 凭据与连接生命周
 
 | 通道 | 方向 | 载荷 |
 | --- | --- | --- |
-| `ag-pi-channel:send` | 消费方 → 插件 | `{ requestId, provider: "feishu"\|"telegram", kind: "text"\|"card", to?: {id, type?}, text?, card?, update?: {messageId, text?}, parseMode?: "HTML"\|"MarkdownV2" }` |
+| `ag-pi-channel:send` | 消费方 → 插件 | **按 provider 判别的联合**（两家的"卡片"不是同一层概念，字段不共用）：见下节 |
 | `ag-pi-channel:send:result` | 插件 → 消费方 | `{ requestId, ok, messageId?, error?: {code, message} }` |
 | `ag-pi-channel:inbound` | 插件 → 消费方 | 消息：`{ kind:"message", chatId, chatType?, senderId, messageId, text, contentType, timestamp? }`；按钮：`{ kind:"action", chatId, senderId, messageId, value }` |
 | `ag-pi-channel:status` → `:status:result` | 双向 | 连接状态、配置路径、脱敏账号、最近错误 |
@@ -25,6 +25,18 @@ import { sendViaBus } from "./lib/events.ts";
 const result = await sendViaBus(pi.events, { provider: "feishu", kind: "text", text: "任务完成" });
 if (!result.ok) logError(`${result.error?.code}: ${result.error?.message}`);
 ```
+
+### 出站载荷（按 provider 判别，字段不共用）
+
+- **飞书**：`feishuCard` 就是整条消息（`msg_type: interactive`，卡片自带 header/body）
+  - `{ provider: "feishu", kind: "text", text }`
+  - `{ provider: "feishu", kind: "card", feishuCard, update?: { messageId } }`（带 `update` = 整卡 patch）
+- **Telegram**：`telegramKeyboard` 只是 `reply_markup` 附件，正文必须另给 `text`
+  - `{ provider: "telegram", kind: "text", text, parseMode?, update? }`
+  - `{ provider: "telegram", kind: "card", text, telegramKeyboard, parseMode?, update? }`（发消息或"改正文+键盘"）
+  - `{ provider: "telegram", kind: "keyboard", telegramKeyboard, update }`（只换键盘，不动正文）
+
+编译期即可挡住"把飞书卡片发给 telegram"这类错配；插件对两边的原生载荷都只做原样投递（`create` / `patch` / `editMessage*`），不理解其业务语义。
 
 ## 配置
 

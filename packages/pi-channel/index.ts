@@ -64,6 +64,8 @@ export default function piChannel(pi: ExtensionAPI): void {
 	}
 
 	async function dispatchSend(req: ChannelSendRequest): Promise<ChannelSendResult> {
+		// 先取出 requestId：下面的 provider 收窄会让「未知 provider」分支变成 never
+		const requestId = req.requestId;
 		const respond = (result: ChannelSendResult): ChannelSendResult => {
 			pi.events.emit(CHANNEL_SEND_RESULT, result);
 			return result;
@@ -94,9 +96,9 @@ export default function piChannel(pi: ExtensionAPI): void {
 				return respond({ requestId: req.requestId, ok: true, messageId });
 			}
 			return respond({
-				requestId: req.requestId,
+				requestId,
 				ok: false,
-				error: { code: "unknown_provider", message: `unsupported provider: ${String(req.provider)}` },
+				error: { code: "unknown_provider", message: `unsupported provider: ${String((req as { provider?: unknown }).provider)}` },
 			});
 		} catch (err) {
 			return respond({ requestId: req.requestId, ok: false, error: { code: "send_failed", message: noteError(req.provider, err) } });

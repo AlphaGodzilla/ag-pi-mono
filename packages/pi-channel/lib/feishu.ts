@@ -13,7 +13,7 @@
  */
 import { Client, createLarkChannel, Domain, type LarkChannel } from "@larksuiteoapi/node-sdk";
 import { maskAccount, type FeishuChannelConfig } from "./config.ts";
-import { readAckText, type ChannelInboundEvent, type ChannelSendRequest } from "./events.ts";
+import { readAckText, type ChannelInboundEvent, type FeishuSendRequest } from "./events.ts";
 import { logError } from "./log.ts";
 
 /** 出站所需的最小 client 形状（测试注入假实现，避免真 SDK 请求）。 */
@@ -67,7 +67,7 @@ export function classifyFeishuError(err: unknown): { code: string; message: stri
 }
 
 export type FeishuProvider = {
-	send(req: ChannelSendRequest, cfg: FeishuChannelConfig): Promise<{ messageId: string }>;
+	send(req: FeishuSendRequest, cfg: FeishuChannelConfig): Promise<{ messageId: string }>;
 	connect(cfg: FeishuChannelConfig, onInbound: (evt: ChannelInboundEvent) => void): Promise<void>;
 	close(): Promise<void>;
 	status(): { connected: boolean; accountMasked?: string };
@@ -183,17 +183,19 @@ export function createFeishuProvider(deps: FeishuProviderDeps = {}): FeishuProvi
 		handler = next;
 	}
 
-	async function send(req: ChannelSendRequest, cfg: FeishuChannelConfig): Promise<{ messageId: string }> {
+	async function send(req: FeishuSendRequest, cfg: FeishuChannelConfig): Promise<{ messageId: string }> {
 		assertConfigured(cfg);
+		// 类型上已排除（kind=card 必带 feishuCard）；这里是 JS 调用方（跨扩展事件）的兜底
+		if (req.kind === "card" && req.feishuCard === undefined) {
+			throw new FeishuChannelError("invalid_request", "feishu card request needs feishuCard");
+		}
 		const client = clientFor(cfg);
 
-		if (req.update) {
-			if (req.card === undefined) {
-				throw new FeishuChannelError("invalid_request", "feishu update needs card payload");
-			}
+		// 飞书只有交互卡片能更新（im.v1.message.patch 作用于卡片 content）
+		if (req.kind === "card" && req.update) {
 			await client.im.v1.message.patch({
 				path: { message_id: req.update.messageId },
-				data: { content: JSON.stringify(req.card) },
+				data: { content: JSON.stringify(req.feishuCard) },
 			});
 			return { messageId: req.update.messageId };
 		}
@@ -207,15 +209,12 @@ export function createFeishuProvider(deps: FeishuProviderDeps = {}): FeishuProvi
 		let msgType: string;
 		let content: unknown;
 		if (req.kind === "card") {
-			if (req.card === undefined) {
-				throw new FeishuChannelError("invalid_request", "feishu card send needs card payload");
-			}
+			// 卡片自带正文：feishuCard 就是整条消息的 content
 			msgType = "interactive";
-			content = req.card;
+			content = req.feishuCard;
 		} else {
 			msgType = "text";
-			// parseMode 是 telegram 专用字段，飞书文本消息不接受它（静默忽略）
-			content = { text: req.text ?? "" };
+			content = { text: req.text };
 		}
 
 		const response = await client.im.v1.message.create({

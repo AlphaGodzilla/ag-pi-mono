@@ -19,6 +19,9 @@ import {
 
 type Call = { api: string; args: unknown };
 
+/** provider.send 的入参（按 provider 判别的联合）；JS 调用方兜底用例用它做断言 */
+type FeishuReq = Parameters<ReturnType<typeof createFeishuProvider>["send"]>[0];
+
 function makeCfg(over: Partial<FeishuChannelConfig> = {}): FeishuChannelConfig {
 	return {
 		appId: "cli_test",
@@ -116,13 +119,11 @@ test("send 文本：显式 to 覆盖收件人与 receive_id_type", async () => {
 	assert.equal(args.data.receive_id, "ou_x");
 });
 
-test("send 文本：parseMode 是 telegram 专用字段，飞书忽略它", async () => {
+test("send 文本：飞书不接受 parseMode（契约按 provider 判别）", async () => {
 	const { client, calls } = makeClient();
 	const { provider } = providerWith(client);
-	await provider.send(
-		{ requestId: "r1", provider: "feishu", kind: "text", text: "hi", parseMode: "HTML" },
-		makeCfg(),
-	);
+	// @ts-expect-error 飞书文本请求没有 parseMode 字段；JS 调用方多传时运行时忽略
+	await provider.send({ requestId: "r1", provider: "feishu", kind: "text", text: "hi", parseMode: "HTML" }, makeCfg());
 	const args = calls[0]?.args as { data: { content: string } };
 	assert.deepEqual(JSON.parse(args.data.content), { text: "hi" });
 });
@@ -131,7 +132,7 @@ test("send 卡片：msg_type=interactive，content 为卡片 JSON 原样", async
 	const { client, calls } = makeClient();
 	const { provider } = providerWith(client);
 	const card = { schema: "2.0", body: { elements: [] } };
-	await provider.send({ requestId: "r1", provider: "feishu", kind: "card", card }, makeCfg());
+	await provider.send({ requestId: "r1", provider: "feishu", kind: "card", feishuCard: card }, makeCfg());
 	const args = calls[0]?.args as { data: { msg_type: string; content: string } };
 	assert.equal(args.data.msg_type, "interactive");
 	assert.deepEqual(JSON.parse(args.data.content), card);
@@ -145,10 +146,10 @@ test("send：没有 to 也没有默认收件人 → no_target", async () => {
 	);
 });
 
-test("send：card 但没给 card 载荷 → invalid_request", async () => {
+test("send：card 请求缺 feishuCard → invalid_request（JS 调用方兜底）", async () => {
 	const { provider } = providerWith();
 	await assert.rejects(
-		() => provider.send({ requestId: "r1", provider: "feishu", kind: "card" }, makeCfg()),
+		() => provider.send({ requestId: "r1", provider: "feishu", kind: "card" } as unknown as FeishuReq, makeCfg()),
 		(err: unknown) => err instanceof FeishuChannelError && err.code === "invalid_request",
 	);
 });
@@ -158,7 +159,7 @@ test("send update：走 im.v1.message.patch 并回显 messageId", async () => {
 	const { provider } = providerWith(client);
 	const card = { schema: "2.0", body: { elements: [{ tag: "markdown" }] } };
 	const res = await provider.send(
-		{ requestId: "r1", provider: "feishu", kind: "card", card, update: { messageId: "om_old" } },
+		{ requestId: "r1", provider: "feishu", kind: "card", feishuCard: card, update: { messageId: "om_old" } },
 		makeCfg(),
 	);
 	assert.equal(res.messageId, "om_old");
