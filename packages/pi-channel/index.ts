@@ -45,6 +45,8 @@ type UiCtx = { hasUI?: boolean; ui: { notify(msg: string, level: "info" | "warni
 
 export default function piChannel(pi: ExtensionAPI): void {
 	let cfg: ChannelConfig = loadChannelConfig();
+	/** reload/quit 之后本实例作废：其捕获的 `pi` 变成 stale，任何 emit 都会抛错并让 pi 退出 */
+	let retired = false;
 	const feishu: FeishuProvider = createFeishuProvider();
 	const telegram: TelegramProvider = createTelegramProvider();
 	/** 最近一次连接/发送失败原因，供 /channel status 展示 */
@@ -67,7 +69,7 @@ export default function piChannel(pi: ExtensionAPI): void {
 		// 先取出 requestId：下面的 provider 收窄会让「未知 provider」分支变成 never
 		const requestId = req.requestId;
 		const respond = (result: ChannelSendResult): ChannelSendResult => {
-			pi.events.emit(CHANNEL_SEND_RESULT, result);
+			safeEmit(CHANNEL_SEND_RESULT, result);
 			return result;
 		};
 		try {
@@ -110,8 +112,22 @@ export default function piChannel(pi: ExtensionAPI): void {
 		}
 	}
 
+	/**
+	 * 安全 emit：实例作废（reload/quit）后静默丢弃；即使 pi 判定 ctx stale 抛错也必须吞掉。
+	 * 这些调用点全在**异步续体**里（发送完成/失败、长连接收到事件之后），抛出去就是
+	 * unhandledRejection → pi 以 uncaughtException 直接退出（实测崩溃栈就落在这一行）。
+	 */
+	function safeEmit(channel: string, data: unknown): void {
+		if (retired) return;
+		try {
+			pi.events.emit(channel, data);
+		} catch (err) {
+			logError(`emit ${channel} failed (stale ctx after reload?): ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+
 	const emitInbound = (evt: ChannelInboundEvent): void => {
-		pi.events.emit(CHANNEL_INBOUND, evt);
+		safeEmit(CHANNEL_INBOUND, evt);
 	};
 
 	async function connectAll(): Promise<void> {
@@ -139,6 +155,7 @@ export default function piChannel(pi: ExtensionAPI): void {
 	 * `inbound: false` = 永不需要入站，直接跳过；provider 的 `connect()` 自身幂等（重复调用不会重复建连）。
 	 */
 	function ensureInbound(provider: ChannelProvider): void {
+		if (retired) return; // 作废实例不再建连（迟到的发送结果可能在此之后才回来）
 		if (provider === "feishu") {
 			if (!isFeishuConfigured(cfg) || cfg.feishu.inbound === false) return;
 			void feishu.connect(cfg.feishu, emitInbound).catch((err) => noteError("feishu", err));
@@ -186,13 +203,16 @@ export default function piChannel(pi: ExtensionAPI): void {
 
 	// ---- 事件契约 ----
 	pi.events.on(CHANNEL_SEND, (data) => {
-		void dispatchSend(data as ChannelSendRequest);
+		// fire-and-forget 也要兜住：dispatchSend 内部已不外抛（safeEmit 吞异常），这里是最后一道保险
+		void dispatchSend(data as ChannelSendRequest).catch((err) =>
+			logError(`dispatchSend failed: ${err instanceof Error ? err.message : String(err)}`),
+		);
 	});
 
 	pi.events.on(CHANNEL_STATUS, (data) => {
 		const requestId = (data as { requestId?: unknown })?.requestId;
 		if (typeof requestId !== "string") return;
-		pi.events.emit(CHANNEL_STATUS_RESULT, { requestId, configPath: resolveConfigPath(), providers: providerStatuses() });
+		safeEmit(CHANNEL_STATUS_RESULT, { requestId, configPath: resolveConfigPath(), providers: providerStatuses() });
 	});
 
 	// ---- 连接生命周期 ----
@@ -207,6 +227,11 @@ export default function piChannel(pi: ExtensionAPI): void {
 		// reload 路径刻意**不 await**：关连接有 ~0.4-1s 收尾（飞书 ack 冲刷 + tg 宽限），等待会重新
 		// 拉长 /reload 的输入区缺失窗口；后台关闭 + 409 退避重试兜底即可。
 		const reason = (event as { reason?: unknown } | undefined)?.reason;
+		// reload/quit 之后本实例的 `pi` 即作废（再 emit 会抛 stale ctx 错并让 pi 退出）→ 先退休再收尾；
+		// new/resume/fork 不退休（同一实例继续服务后续会话）。
+		if (reason === "quit" || reason === "reload") {
+			retired = true;
+		}
 		if (reason === "quit") await closeAll();
 		else if (reason === "reload") void closeAll();
 	});

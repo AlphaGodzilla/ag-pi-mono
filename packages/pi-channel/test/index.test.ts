@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
-import { sendViaBus, statusViaBus, type ChannelStatusResult, type EventsLike } from "../lib/events.ts";
+import { CHANNEL_SEND, sendViaBus, statusViaBus, type ChannelStatusResult, type EventsLike } from "../lib/events.ts";
 
 // sendViaBus / statusViaBus 的超时定时器是 unref 的（避免拖住 pi 进程），所以等待结果期间
 // 事件循环可能直接空掉；测试里用一个 ref 的定时器撑住，否则用例会被判为 pending 而取消。
@@ -45,8 +45,8 @@ type FakePi = {
 	notices: Notify[];
 };
 
-function makeFakePi(): FakePi {
-	const events = createEventBus();
+/** @param events 可注入（默认真 EventBus）；注入一个会抛错的 emit 即可模拟 reload 后的 stale ctx */
+function makeFakePi(events: EventsLike = createEventBus()): FakePi {
 	const handlers = new Map<string, (...args: unknown[]) => unknown>();
 	const commands = new Map<string, { description?: string; handler: (args: string, ctx: unknown) => Promise<void> }>();
 	const notices: Notify[] = [];
@@ -166,6 +166,33 @@ test("惰性启动：工厂初始化后两个 provider 均未连接（启动零�
 			{ provider: "telegram", configured: true, connected: false },
 		],
 	);
+});
+
+test("reload 后 stale ctx：迟到的发送结果不会把 pi 打崩（unhandledRejection → uncaughtException）", async () => {
+	rmSync(CONFIG_PATH, { force: true }); // 未配置 → dispatchSend 直接 respond(not_configured)，不涉及网络
+	const bus = createEventBus();
+	const staleEvents: EventsLike = {
+		on: (channel, handler) => bus.on(channel, handler),
+		// 模拟 reload 之后 pi 的 assertActive：任何 emit 都抛（实测崩溃栈就落在 respond 的 emit 上）
+		emit: () => {
+			throw new Error("This extension ctx is stale after session replacement or reload.");
+		},
+	};
+	makeFakePi(staleEvents);
+
+	const unhandled: unknown[] = [];
+	const onUnhandled = (err: unknown) => unhandled.push(err);
+	process.on("unhandledRejection", onUnhandled);
+	try {
+		assert.doesNotThrow(() =>
+			bus.emit(CHANNEL_SEND, { requestId: "stale", provider: "feishu", kind: "text", text: "hi" }),
+		);
+		await new Promise((resolve) => setImmediate(resolve));
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.deepEqual(unhandled, [], "不应产生 unhandledRejection（以前会让 pi 以 uncaughtException 退出）");
+	} finally {
+		process.off("unhandledRejection", onUnhandled);
+	}
 });
 
 test("/channel 命令：status 输出状态行，send 提示用户，reload 重载配置", async () => {
