@@ -17,7 +17,8 @@ pi 的**外部通信 channel 插件**：独占 provider 凭据与连接生命周
 - **卡片/键盘是 provider 原生结构**（飞书卡片 JSON / Telegram `reply_markup`），插件不理解其业务语义；按钮语义留在消费方。
 - 按钮 `value` 里带字符串字段 `ackText` 时，插件用它回 ack（飞书 3 秒回调响应 / Telegram `answerCallbackQuery`），缺省「已收到」。
 - 出站不要求已连接：飞书走 REST、Telegram 走 Bot API HTTP；`inbound: false` 时只做出站，不建连接。
-- 插件缺席或超时 → `ok:false`（`code: "timeout"` / `"not_configured"`），消费方据此降级，**绝不抛异常打断主流程**。
+- 插件缺席或超时 → `ok:false`（`code: "timeout"` / `"not_configured"` / `"plugin_missing"`），消费方据此降级，**绝不抛异常打断主流程**。
+- **消费方建议先做 pre-flight**：首次发送前 `await statusViaBus(pi.events, 1_500)`；返回 `null` 即插件未加载，比等 `send` 超时（默认 10s）快得多，也便于据此回落到其它交互路径（`rpiv-ask-user-question` 就是这么做的：通道不可用时改用本地 TUI 问卷并提示用户）。
 
 ```ts
 // 消费方示例（同仓库）
