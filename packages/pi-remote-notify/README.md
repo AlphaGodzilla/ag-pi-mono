@@ -4,25 +4,38 @@ pi 扩展：**任务结束后通过飞书提醒你**，提醒内容包含**最�
 
 离开终端 / 远程办公时，pi 在后台跑任务，任务一结束飞书立刻推给你工作总结；需要你授权或回答问卷时也会提醒你回来操作。
 
+> **投递由 pi-channel 负责**：本插件只发 `ag-pi-channel:send` 事件，飞书凭证与连接归 [pi-channel](../pi-channel) 插件（`~/.pi/agent/extensions/pi-channel/config.json`）。本插件**不再需要、也不再读取自己的 config.json**。
+
 ## 功能特性
 
 - ✅ 任务结束自动推送飞书通知，内含**最近一次工作总结**（不额外调 LLM，零成本）
 - ✅ `/remote-notify` 开关命令，状态持久化，重启不丢
 - ✅ 事件种类与 pi-cmux 对齐：任务开始 / 完成 / 会话结束 + 权限 ask + 问卷 ask
+- ✅ 不持有凭证、不直接调飞书 SDK：发送只 emit `ag-pi-channel:send` 事件
 - ✅ 与 pi-cmux 完全隔离：不修改其代码、不占其连接，互不影响
-- ✅ 发送走官方 SDK 纯 REST，不建立长连接，不干扰现有飞书桥接
+
+## 依赖关系
+
+| 组件 | 职责 |
+| --- | --- |
+| **pi-channel**（投递方） | 持有飞书 appId / appSecret / 默认收件人（`~/.pi/agent/extensions/pi-channel/config.json`），实际调用飞书 API |
+| **remote-notify**（本插件） | 订阅 pi 事件，把通知文本经 `ag-pi-channel:send` 事件交给 pi-channel |
+
+- 两者通过 pi 的事件总线通信（`ag-pi-channel:send` / `ag-pi-channel:send:result`），**不是代码或包依赖**，可独立安装/升级。
+- **pi-channel 缺席或未配置时**：每次发送等 10s 超时后降级——错误写入本插件 `error.log`，不抛异常、不污染界面，pi 主流程完全不受影响。
 
 ## 目录结构
 
 ```
-~/.pi/agent/extensions/remote-notify/
+~/.pi/agent/extensions/pi-remote-notify/
 ├── index.ts              # 入口：组合注册 + /remote-notify 命令
-├── package.json          # 依赖 @larksuiteoapi/node-sdk
+├── package.json          # 无 dependencies（不再依赖飞书 SDK）
 ├── README.md
 ├── src/
-│   ├── config.ts         # 配置加载（凭证/收件人，多来源优先级）
+│   ├── channel.ts        # pi-channel 事件契约本地副本（通道常量 / 类型 / sendViaBus）
+│   ├── notify.ts         # 经事件契约发送：异步 + 异常兜底
+│   ├── log.ts            # error.log 写入（绝不写 console）
 │   ├── state.ts          # toggle 开关持久化（默认关闭）
-│   ├── feishu.ts         # 飞书文本发送（官方 SDK，纯 REST）
 │   ├── summary.ts        # 最近一次工作总结提取/格式化
 │   ├── lifecycle.ts      # 任务开始 / 完成 / 会话结束
 │   ├── permissionNotify.ts  # 权限 ask 弹窗通知
@@ -32,15 +45,11 @@ pi 扩展：**任务结束后通过飞书提醒你**，提醒内容包含**最�
 
 ## 快速开始
 
-扩展位于自动发现目录 `~/.pi/agent/extensions/remote-notify/`，`/reload` 即可加载，无需注册到 `packages`。
-
 ```bash
-# 1. 安装依赖（首次或 node_modules 丢失时执行）
-cd ~/.pi/agent/extensions/remote-notify
-npm install
+# 1. 先配置 pi-channel（凭证 + 默认收件人），见其 config.example.json：
+#    ~/.pi/agent/extensions/pi-channel/config.json
 
 # 2. 在 pi 中重载扩展
-#    在 pi 交互界面执行：
 /reload
 
 # 3. 开启飞书提醒
@@ -49,89 +58,29 @@ npm install
 # 4. 跑一个任务，任务结束后飞书收到「✅ 任务完成」+ 总结
 ```
 
+本插件自身没有任何 npm 依赖，不需要 `npm install`。
+
 ## 配置
 
-### 凭证来源与优先级
+- **本插件没有配置文件**：原先的 `~/.pi/agent/extensions/pi-remote-notify/config.json` 与 `config.example.json` 已随迁移删除。
+- **凭证与默认收件人**全部由 pi-channel 提供，见 `~/.pi/agent/extensions/pi-channel/config.json`（`feishu.appId` / `feishu.appSecret` / `feishu.defaultReceiver`）。
+- 通知不指定收件人（事件里不带 `to`），使用 pi-channel 配置里的**默认收件人**，因此配好 `feishu.defaultReceiver` 即可。
+- 旧来源（`~/.pi/agent/feishu/`、`~/.config/rpiv-ask-user-question/config.json` 的 `remote.feishu`，以及 `PI_FEISHU_NOTIFY_APP_ID` / `_APP_SECRET` / `_CHAT_ID` / `_OPEN_ID` / `_DOMAIN`）**不再读取**。
 
-加载顺序（先命中的生效）：
-
-1. **本扩展自有配置** `~/.pi/agent/extensions/pi-remote-notify/config.json`（推荐）
-2. **环境变量**（`PI_FEISHU_NOTIFY_*`，显式覆盖）
-3. **ask-question 插件配置** `~/.config/rpiv-ask-user-question/config.json`（已验证可用）
-4. **现有飞书桥接** `~/.pi/agent/feishu/`（兜底）
-
-四者都不可用时不发送（插件静默禁用，不影响其它扩展）。
-
-### 方式 A：本扩展自有配置（推荐）
-
-文件 `~/.pi/agent/extensions/pi-remote-notify/config.json`（**不在仓库内**）：
-
-```jsonc
-{
-  "appId": "cli_xxxxxxxxxxxxxxxx",
-  "appSecret": "xxxxxxxxxxxxxxxxxxxx",
-  "domain": "feishu",
-  "receiveId": "oc_xxxxxxxxxxxxxxxxxxx",
-  "receiveIdType": "chat_id"
-}
-```
-
-- `appId` / `appSecret` / `receiveId` 三项齐备才算命中（缺任一项即跳到下一来源）
-- `receiveIdType` 缺省 `chat_id`，可取飞书原生 `receive_id_type`（`chat_id` / `open_id` / `user_id` / `union_id` / `email`）
-- `domain`：`feishu`（缺省）| `lark`
-- 完整模板见 [`config.example.json`](./config.example.json)
-
-### 方式 B：ask-question 配置（复用其它插件凭证）
-
-复用 rpiv-ask-user-question 插件的飞书应用凭证。文件 `~/.config/rpiv-ask-user-question/config.json`：
-
-```jsonc
-{
-  "remote": {
-    "feishu": {
-      "appId": "cli_xxxxxxxxxxxxxxxx",
-      "appSecret": "xxxxxxxxxxxxxxxxxxxx",
-      "receivers": [{ "type": "chat_id", "value": "oc_xxxxxxxxxxxxxxxxxxx" }]
-    }
-  }
-}
-```
-
-- `appId` / `appSecret`：飞书开放平台**自建应用**凭证（应用需开启**机器人能力**）
-- `receivers[0]`：通知收件人，`type` 为飞书原生 `receive_id_type`（`chat_id` / `open_id` / `user_id` / `union_id` / `email`），插件取第一个
-- 只读取 `remote.feishu` 三项，其它字段不影响
-
-### 方式 C：现有飞书桥接（兜底）
-
-若方式 A/B 都缺失或非法，回退读取 `~/.pi/agent/feishu/`：
-
-- `config.json` → `appId` / `appSecret` / `domain`（`feishu` | `lark`）
-- `bridge.json` → 第一个 route 的 `chatId`（p2p 会话），无则取 p2p key 中的 `open_id`
-
-**> ⚠️ 注意：**`~/.pi/agent/feishu/config.json` 里的应用此前已被删除（错误码 `10217 app has been deleted`），所以实际使用的是方式 A（自有配置）或方式 B（ask-question 配置）。
-
-### 方式 D：环境变量（可选覆盖）
+### 环境变量
 
 | 变量 | 作用 |
 | --- | --- |
 | `PI_FEISHU_NOTIFY=0` | 强制禁用本扩展 |
-| `PI_FEISHU_NOTIFY_APP_ID` | 覆盖应用 appId |
-| `PI_FEISHU_NOTIFY_APP_SECRET` | 覆盖应用 appSecret |
-| `PI_FEISHU_NOTIFY_CHAT_ID` | 覆盖收件人（chat_id） |
-| `PI_FEISHU_NOTIFY_OPEN_ID` | 覆盖收件人（open_id） |
-| `PI_FEISHU_NOTIFY_DOMAIN` | 覆盖域名（`feishu` | `lark`） |
 | `PI_FEISHU_NOTIFY_INCLUDE_SUBAGENTS=1` | 也通知 subagent 会话（默认跳过） |
 | `PI_FEISHU_NOTIFY_SESSION_END=0` | 关闭会话结束提醒 |
 
-> 注意：自有 `config.json` 命中时优先于上表环境变量（config > env）。
-
-
-### 运行数据（与 config.json 同目录）
+### 运行数据
 
 | 文件 | 说明 |
 | --- | --- |
 | `~/.pi/agent/extensions/pi-remote-notify/state.json` | `/remote-notify` 开关状态（旧位置 `~/.pi/agent/feishu/remote-notify-state.json` 仍可读，不再写入） |
-| `~/.pi/agent/extensions/pi-remote-notify/error.log` | 发送失败等错误日志（绝不写 console，避免污染 TUI） |
+| `~/.pi/agent/extensions/pi-remote-notify/error.log` | 发送失败 / pi-channel 缺席超时等错误日志（绝不写 console，避免污染 TUI） |
 
 ## 使用
 
@@ -172,46 +121,37 @@ npm install
 - **事件订阅**：独立订阅上述事件，多扩展可同时监听，互不干扰
 - **总结提取**：从 `ctx.sessionManager.getBranch()`（root→leaf 顺序）取**最后一个 user 消息**起，汇总请求原文 / 工具调用计数（`toolCall`）/ 最终 assistant 结论 / 出错工具（`toolResult.isError`）/ 耗时；**不额外调 LLM**
 - **任务完成时机**：用 `agent_settled`（agent 完全空闲、不再自动重试/续跑），比 `agent_end` 更贴合"任务彻底结束"，避免 retry/compaction 重复提醒
-- **发送机制**：`@larksuiteoapi/node-sdk` 的 `new Client({ appId, appSecret, domain }).im.v1.message.create`，纯 REST；参考 rpiv-ask-user-question 的 `feishu-channel.ts`
+- **发送机制**：`src/notify.ts` 调 `sendViaBus(pi.events, { provider: 'feishu', kind: 'text', text }, 10_000)`，由 pi-channel 应答 `ag-pi-channel:send:result`；`ok: false`（含超时）时把 `error.code` / `error.message` 写进本插件 `error.log`
 - **异常兜底**：所有发送异步 + catch，绝不抛出未捕获异常影响 pi 主流程
 
-## 与 pi-cmux 的关系
+## 与 pi-cmux / pi-channel 的关系
 
-- **不修改、不依赖 pi-cmux 的任何代码/状态**，二者独立订阅事件、独立运行
-- 发送走纯 REST，**不建立 websocket 长连接**，不与 feishu gateway 抢连接资源
+- **pi-cmux**：不修改、不依赖其任何代码/状态，二者独立订阅事件、独立运行
+- **pi-channel**：唯一的投递方；本插件只发事件，不建立长连接、不接触凭证
 - subagent 会话默认跳过（`PI_FEISHU_NOTIFY_INCLUDE_SUBAGENTS=1` 开启，与 pi-cmux 的 `PI_CMUX_INCLUDE_SUBAGENTS` 语义一致）
 
 ## 测试
 
+测试在 pi-mono 仓库内运行（测试会与同仓的 pi-channel / pi-cmux 做契约与共存检查）：
+
 ```bash
-cd ~/.pi/agent/extensions/remote-notify
+cd pi-mono
 
-# 独立测试：加载注册、命令 toggle 持久化、摘要提取、关闭态不发送
-node test/run-test.mjs
-
-# 共存验证：pi-cmux + remote-notify 同时加载互不干扰
-node test/coexist-check.mjs
+# 独立测试：注册、toggle 持久化、摘要提取、
+# 事件契约（假装 pi-channel 应答 / 缺席降级）
+pnpm --filter @alphagodzilla/pi-remote-notify test
 ```
+
+测试用 `PI_CODING_AGENT_DIR` 指向临时目录、不使用任何真实凭证、绝不触网。
 
 ## 故障排查
 
 | 现象 | 原因 / 处理 |
 | --- | --- |
-| 不发通知 | 检查 `/remote-notify status` 是否已开启；确认凭证来源可读（见上文配置） |
-| `10217 app has been deleted` | 该飞书应用已被删除，换用有效凭证（默认走 ask-question 配置） |
-| token 获取失败 | 检查 `appId` / `appSecret` 是否正确、应用是否开启机器人能力 |
-| 发送报错"bot 不在会话" | 收件人 chat_id 需是机器人所在会话；用 `PI_FEISHU_NOTIFY_CHAT_ID` 覆盖 |
+| 不发通知 | `/remote-notify status` 是否已开启；查看本插件 `error.log` 是否有 `send failed`；`/channel status` 确认 pi-channel 已配置 |
+| `error.log` 出现 `send failed: timeout` | pi-channel 未安装/未加载（10s 无应答降级）。安装 pi-channel 后 `/reload` |
+| `error.log` 出现 `not_configured` | pi-channel 未配置飞书（缺 `feishu.appId` / `appSecret` / 默认收件人） |
+| 飞书发送报错（app 被删 / token 失败 / bot 不在会话） | 属于 pi-channel 的故障，见其 `error.log` 与文档 |
 | 子代理任务也提醒 | 默认跳过 subagent；如需包含设 `PI_FEISHU_NOTIFY_INCLUDE_SUBAGENTS=1` |
 | 会话结束不提醒 | 默认开启；`PI_FEISHU_NOTIFY_SESSION_END=0` 会关闭 |
-| 发送报错但 pi 无感 | 正常——错误仅记录到 pi 日志（console），不影响主流程 |
-
-## 环境变量汇总
-
-| 变量 | 默认 | 作用 |
-| --- | --- | --- |
-| `PI_FEISHU_NOTIFY` | 启用 | `0` 强制禁用 |
-| `PI_FEISHU_NOTIFY_APP_ID` / `_APP_SECRET` | ask-question 配置 | 覆盖凭证 |
-| `PI_FEISHU_NOTIFY_CHAT_ID` / `_OPEN_ID` | ask-question 配置 | 覆盖收件人 |
-| `PI_FEISHU_NOTIFY_DOMAIN` | 配置内 domain | 覆盖域名 |
-| `PI_FEISHU_NOTIFY_INCLUDE_SUBAGENTS` | `0` | `1` 包含 subagent |
-| `PI_FEISHU_NOTIFY_SESSION_END` | 开启 | `0` 关闭会话结束提醒 |
+| 发送报错但 pi 无感 | 正常——错误只记录到 `error.log`（从不写 console），不影响主流程 |

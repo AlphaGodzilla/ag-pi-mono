@@ -6,6 +6,7 @@ pi 扩展单仓（monorepo）。原先分散在 `~/.pi/agent/` 下的 7 个本�
 
 | 包 | 目录 | pi 入口 | 说明 |
 | --- | --- | --- | --- |
+| `@alphagodzilla/pi-channel` | `packages/pi-channel` | `index.ts` | 外部通信 channel 插件：独占飞书/Telegram 凭据与连接，通过 `ag-pi-channel:*` 事件契约对外提供出站/入站传输能力 |
 | `@alphagodzilla/pi-cmux` | `packages/pi-cmux` | `index.ts` | cmux 集成（工作区/面板状态），以及权限 ask、`ask_user_question` 问卷弹窗的 cmux 通知 |
 | `@alphagodzilla/pi-context-watchdog` | `packages/pi-context-watchdog` | `index.ts` | 上下文余量看门狗：接近上限时注入收尾提示，阈值自动压缩后自动继续 |
 | `@alphagodzilla/pi-docs-gate` | `packages/pi-docs-gate` | `extensions/` + `skills/` | 把系统提示词里硬编码的 Pi documentation 段落按需化，并动态渲染 pi-docs skill 路径 |
@@ -56,7 +57,8 @@ pi 通过 `~/.pi/agent/settings.json` 的 `packages` 数组按路径加载本地
 - 该目录可安全用作配置目录：pi 扫描 `extensions/` 时只认 `.ts`/`.js` 文件与含 `index.ts`/`package.json` 的子目录，只放 `config.json` 的子目录会被跳过。
 - 解析顺序：**用户配置目录优先**，缺失时回落到包目录内的同名文件（旧位置，兼容用）。
 - 运行数据同放该目录：`pi-remote-notify` 的 `state.json`（`/remote-notify` 开关）与 `error.log`。
-- 各包提供 `config.example.json` 模板；`packages/pi-llm-provider-balance/config.json` 仍被 `.gitignore` 排除，仅作为兜底位置的保险。
+- 外部通信（飞书 / Telegram）的凭据只放 `pi-channel` 一个包：其它扩展（含 rpiv-mono 里的 `rpiv-ask-user-question`）通过 `ag-pi-channel:*` 事件调用它，不直接持有凭证、不直接依赖 SDK。
+- 需要配置的包提供 `config.example.json` 模板（`pi-llm-provider-balance`、`pi-channel`）；`packages/pi-llm-provider-balance/config.json` 仍被 `.gitignore` 排除，仅作为兜底位置的保险。`pi-remote-notify` 已不需要配置（凭证与收件人由 `pi-channel` 提供）。
 
 ## 迁移记录
 

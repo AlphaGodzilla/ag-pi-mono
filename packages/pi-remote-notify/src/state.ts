@@ -1,14 +1,14 @@
 /**
  * /remote-notify toggle 开关的持久化。
  *
- * 状态写入 ~/.pi/agent/extensions/pi-remote-notify/state.json（与本扩展的 config.json 同目录），
+ * 状态写入 ~/.pi/agent/extensions/pi-remote-notify/state.json（本扩展的运行数据目录），
  * 重启 pi 后保持上次的开关状态。默认关闭；读取兼容旧位置
  * ~/.pi/agent/feishu/remote-notify-state.json（2026-09-13 之前，只读不写）。
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { getAgentDir } from '@earendil-works/pi-coding-agent'
-import { logError } from './feishu.ts'
+import { logError } from './log.ts'
 
 const EXTENSION_NAME = 'pi-remote-notify'
 

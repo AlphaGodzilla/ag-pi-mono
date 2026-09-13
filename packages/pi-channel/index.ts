@@ -1,0 +1,232 @@
+/**
+ * pi-channel —— 外部通信 channel 插件（飞书 / Telegram）。
+ *
+ * 职责：独占 provider 凭据与连接生命周期，向其它扩展（以及跨仓库的 rpiv-ask-user-question）
+ * 提供 `ag-pi-channel:*` 事件契约，消费方无需关心 provider 内部实现。
+ *
+ * - 出站：订阅 `ag-pi-channel:send`，按 provider 分发；结果回 `ag-pi-channel:send:result`
+ * - 入站：长连接/长轮询收到消息与按钮点击后发 `ag-pi-channel:inbound`
+ * - 状态：订阅 `ag-pi-channel:status`，回 `ag-pi-channel:status:result`
+ * - 命令：`/channel`（status / reload / send <text>）
+ *
+ * 配置与运行数据都在 `~/.pi/agent/extensions/pi-channel/`（config.json / error.log），
+ * 见仓库根 AGENTS.md「配置与运行数据一律放 extensions 目录」。
+ *
+ * 所有发送与连接错误都收敛成 result / 日志，绝不抛给 pi 主流程。
+ */
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	isFeishuConfigured,
+	isTelegramConfigured,
+	loadChannelConfig,
+	resolveConfigPath,
+	type ChannelConfig,
+} from "./lib/config.ts";
+import {
+	CHANNEL_INBOUND,
+	CHANNEL_SEND,
+	CHANNEL_SEND_RESULT,
+	CHANNEL_STATUS,
+	CHANNEL_STATUS_RESULT,
+	type ChannelInboundEvent,
+	type ChannelProvider,
+	type ChannelProviderStatus,
+	type ChannelSendRequest,
+	type ChannelSendResult,
+} from "./lib/events.ts";
+import { createFeishuProvider, classifyFeishuError, type FeishuProvider } from "./lib/feishu.ts";
+import { createTelegramProvider, classifyTelegramError, type TelegramProvider } from "./lib/telegram.ts";
+import { logError } from "./lib/log.ts";
+
+/** 命令与状态提示里用的短标签 */
+const PROVIDER_LABELS: Record<ChannelProvider, string> = { feishu: "飞书", telegram: "Telegram" };
+
+type UiCtx = { hasUI?: boolean; ui: { notify(msg: string, level: "info" | "warning"): void } };
+
+export default function piChannel(pi: ExtensionAPI): void {
+	let cfg: ChannelConfig = loadChannelConfig();
+	const feishu: FeishuProvider = createFeishuProvider();
+	const telegram: TelegramProvider = createTelegramProvider();
+	/** 最近一次连接/发送失败原因，供 /channel status 展示 */
+	const lastErrors = new Map<ChannelProvider, string>();
+
+	const report = (ctx: UiCtx, msg: string, level: "info" | "warning" = "info"): void => {
+		if (ctx.hasUI) ctx.ui.notify(msg, level);
+		else console.log(msg);
+	};
+
+	function noteError(provider: ChannelProvider, err: unknown): string {
+		const { code, message } = provider === "feishu" ? classifyFeishuError(err) : classifyTelegramError(err);
+		const text = `${code}: ${message}`;
+		lastErrors.set(provider, text);
+		logError(`[${provider}] ${text}`);
+		return text;
+	}
+
+	async function dispatchSend(req: ChannelSendRequest): Promise<ChannelSendResult> {
+		const respond = (result: ChannelSendResult): ChannelSendResult => {
+			pi.events.emit(CHANNEL_SEND_RESULT, result);
+			return result;
+		};
+		try {
+			if (req.provider === "feishu") {
+				if (!isFeishuConfigured(cfg)) {
+					return respond({
+						requestId: req.requestId,
+						ok: false,
+						error: { code: "not_configured", message: `feishu not configured in ${resolveConfigPath()}` },
+					});
+				}
+				const { messageId } = await feishu.send(req, cfg.feishu);
+				lastErrors.delete("feishu");
+				return respond({ requestId: req.requestId, ok: true, messageId });
+			}
+			if (req.provider === "telegram") {
+				if (!isTelegramConfigured(cfg)) {
+					return respond({
+						requestId: req.requestId,
+						ok: false,
+						error: { code: "not_configured", message: `telegram not configured in ${resolveConfigPath()}` },
+					});
+				}
+				const { messageId } = await telegram.send(req, cfg.telegram);
+				lastErrors.delete("telegram");
+				return respond({ requestId: req.requestId, ok: true, messageId });
+			}
+			return respond({
+				requestId: req.requestId,
+				ok: false,
+				error: { code: "unknown_provider", message: `unsupported provider: ${String(req.provider)}` },
+			});
+		} catch (err) {
+			return respond({ requestId: req.requestId, ok: false, error: { code: "send_failed", message: noteError(req.provider, err) } });
+		}
+	}
+
+	const emitInbound = (evt: ChannelInboundEvent): void => {
+		pi.events.emit(CHANNEL_INBOUND, evt);
+	};
+
+	async function connectAll(): Promise<void> {
+		if (isFeishuConfigured(cfg)) {
+			try {
+				await feishu.connect(cfg.feishu, emitInbound);
+				lastErrors.delete("feishu");
+			} catch (err) {
+				noteError("feishu", err);
+			}
+		}
+		if (isTelegramConfigured(cfg)) {
+			try {
+				await telegram.connect(cfg.telegram, emitInbound);
+				lastErrors.delete("telegram");
+			} catch (err) {
+				noteError("telegram", err);
+			}
+		}
+	}
+
+	async function closeAll(): Promise<void> {
+		await Promise.allSettled([feishu.close(), telegram.close()]);
+	}
+
+	function providerStatuses(): ChannelProviderStatus[] {
+		const feishuStatus = feishu.status();
+		const telegramStatus = telegram.status();
+		return [
+			{
+				provider: "feishu",
+				configured: isFeishuConfigured(cfg),
+				connected: feishuStatus.connected,
+				accountMasked: feishuStatus.accountMasked,
+				error: lastErrors.get("feishu"),
+			},
+			{
+				provider: "telegram",
+				configured: isTelegramConfigured(cfg),
+				connected: telegramStatus.connected,
+				accountMasked: telegramStatus.accountMasked,
+				error: lastErrors.get("telegram"),
+			},
+		];
+	}
+
+	function statusLine(): string {
+		const parts = providerStatuses().map((s) => {
+			const label = PROVIDER_LABELS[s.provider];
+			if (!s.configured) return `${label}: 未配置`;
+			const state = s.connected ? "已连接" : "出站模式";
+			const account = s.accountMasked ? ` ${s.accountMasked}` : "";
+			return `${label}: ${state}${account}`;
+		});
+		return `pi-channel | ${parts.join(" | ")} | 配置 ${resolveConfigPath()}`;
+	}
+
+	// ---- 事件契约 ----
+	pi.events.on(CHANNEL_SEND, (data) => {
+		void dispatchSend(data as ChannelSendRequest);
+	});
+
+	pi.events.on(CHANNEL_STATUS, (data) => {
+		const requestId = (data as { requestId?: unknown })?.requestId;
+		if (typeof requestId !== "string") return;
+		pi.events.emit(CHANNEL_STATUS_RESULT, { requestId, configPath: resolveConfigPath(), providers: providerStatuses() });
+	});
+
+	// ---- 连接生命周期 ----
+	pi.on("session_start", async () => {
+		await connectAll();
+	});
+
+	pi.on("session_shutdown", async (event) => {
+		// 会话结束（new/resume/fork）不拆连接：同一进程内后续会话还要用；
+		// 只有真正退出进程时才断开，避免残留 websocket。
+		const reason = (event as { reason?: unknown } | undefined)?.reason;
+		if (reason === "quit") await closeAll();
+	});
+
+	// ---- 命令 ----
+	pi.registerCommand("channel", {
+		description: "外部通信 channel：status（状态）/ reload（重载配置并重连）/ send <text>（测试发送）",
+		handler: async (args, ctx) => {
+			const [sub, ...rest] = (args ?? "").trim().split(/\s+/);
+			if (sub === "reload") {
+				cfg = loadChannelConfig();
+				await closeAll();
+				await connectAll();
+				report(ctx as UiCtx, statusLine());
+				return;
+			}
+			if (sub === "send") {
+				const text = rest.join(" ").trim();
+				if (!text) {
+					report(ctx as UiCtx, "用法：/channel send <文本>", "warning");
+					return;
+				}
+				const provider: ChannelProvider | undefined = isFeishuConfigured(cfg) ? "feishu" : isTelegramConfigured(cfg) ? "telegram" : undefined;
+				if (!provider) {
+					report(ctx as UiCtx, `pi-channel 未配置任何 provider（${resolveConfigPath()}）`, "warning");
+					return;
+				}
+				const result = await dispatchSend({
+					requestId: globalThis.crypto.randomUUID(),
+					provider,
+					kind: "text",
+					text,
+				});
+				if (!result.ok) {
+					report(ctx as UiCtx, `发送失败：${result.error?.code} ${result.error?.message}`, "warning");
+					return;
+				}
+				report(ctx as UiCtx, `已发送（${PROVIDER_LABELS[provider]}，messageId=${result.messageId ?? "-"}）`);
+				return;
+			}
+			// 默认 status
+			report(ctx as UiCtx, statusLine());
+		},
+	});
+
+	if (!isFeishuConfigured(cfg) && !isTelegramConfigured(cfg)) {
+		logError(`no provider configured; create ${resolveConfigPath()} (see config.example.json)`);
+	}
+}

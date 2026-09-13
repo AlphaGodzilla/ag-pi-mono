@@ -1,24 +1,29 @@
 {
-  "name": "@alphagodzilla/pi-remote-notify",
+  "name": "@alphagodzilla/pi-channel",
   "version": "0.1.0",
   "private": true,
-  "description": "pi 扩展：任务结束后通过飞书提醒，含最近一次工作总结；/remote-notify 切换开关",
+  "description": "pi 扩展：外部通信 channel 插件（飞书/Telegram 出站发送与入站长连接），通过 ag-pi-channel:* 事件契约向其它扩展提供传输能力",
   "keywords": [
     "pi-package",
     "pi-extension",
     "pi",
+    "channel",
     "feishu",
-    "notification"
+    "lark",
+    "telegram"
   ],
   "type": "module",
   "main": "index.ts",
   "scripts": {
-    "test": "node test/run-test.mjs && node test/coexist-check.mjs"
+    "test": "node --test test/*.test.ts"
   },
   "pi": {
     "extensions": [
       "./index.ts"
     ]
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.73.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
@@ -31,9 +36,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/AlphaGodzilla/pi-mono.git",
-    "directory": "packages/pi-remote-notify"
+    "directory": "packages/pi-channel"
   },
-  "homepage": "https://github.com/AlphaGodzilla/pi-mono/tree/main/packages/pi-remote-notify#readme",
+  "homepage": "https://github.com/AlphaGodzilla/pi-mono/tree/main/packages/pi-channel#readme",
   "bugs": {
     "url": "https://github.com/AlphaGodzilla/pi-mono/issues"
   }

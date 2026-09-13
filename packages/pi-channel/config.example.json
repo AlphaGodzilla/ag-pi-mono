@@ -1,0 +1,19 @@
+{
+  "feishu": {
+    "appId": "cli_xxxxxxxxxxxxxxxx",
+    "appSecret": "YOUR_APP_SECRET",
+    "domain": "feishu",
+    "inbound": true,
+    "requireMention": true,
+    "dmMode": "open",
+    "defaultReceiver": {
+      "type": "chat_id",
+      "value": "oc_xxxxxxxxxxxxxxxxxxx"
+    }
+  },
+  "telegram": {
+    "botToken": "123456789:YOUR_BOT_TOKEN",
+    "inbound": true,
+    "defaultChatId": "-1001234567890"
+  }
+}

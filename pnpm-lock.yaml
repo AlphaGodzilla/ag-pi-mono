@@ -27,6 +27,15 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  packages/pi-channel:
+    dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: '*'
+        version: 0.85.1(ws@8.21.3)
+      '@larksuiteoapi/node-sdk':
+        specifier: ^1.73.0
+        version: 1.73.3
+
   packages/pi-cmux:
     dependencies:
       '@earendil-works/pi-coding-agent':
@@ -62,9 +71,6 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: '*'
         version: 0.85.1(ws@8.21.3)
-      '@larksuiteoapi/node-sdk':
-        specifier: ^1.73.0
-        version: 1.73.3
 
   packages/pi-tps:
     dependencies:

@@ -5,6 +5,8 @@
  * 比 agent_end 更贴合"任务彻底结束"，避免 retry/compaction 重复提醒）、
  * session_shutdown（结束）。均为独立事件订阅，不修改/依赖 pi-cmux。
  *
+ * 发送经 pi-channel 的 `ag-pi-channel:send` 事件（凭据/投递由 pi-channel 负责）。
+ *
  * 关键约束：事件 handler 必须绝对安全——任何异常都被 try/catch 兜底并写入
  * 日志文件，绝不抛入 pi 事件分发链；不向 stdout/stderr 输出任何内容，避免
  * 污染 TUI / 干扰 cmux 的 busy/idle 状态判断。
@@ -14,8 +16,8 @@
  */
 import { join } from 'node:path'
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
-import type { FeishuConfig } from './config.ts'
-import { logError, safeNotify } from './feishu.ts'
+import { logError } from './log.ts'
+import { safeNotify } from './notify.ts'
 import { extractWorkSummary, formatTaskDoneSummary } from './summary.ts'
 
 const SUBAGENT_SESSION_DIR = join(getAgentDir(), 'subagents', 'sessions')
@@ -41,11 +43,10 @@ function sessionKey(ctx: ExtensionContext): string {
 
 export type LifecycleDeps = {
   getEnabled: () => boolean
-  cfg: FeishuConfig | null
 }
 
 export default function registerLifecycle(pi: ExtensionAPI, deps: LifecycleDeps): void {
-  const { getEnabled, cfg } = deps
+  const { getEnabled } = deps
   const startTimes = new Map<string, number>()
   const includeSubagents = process.env.PI_FEISHU_NOTIFY_INCLUDE_SUBAGENTS === '1'
 
@@ -69,19 +70,17 @@ export default function registerLifecycle(pi: ExtensionAPI, deps: LifecycleDeps)
   // 任务开始
   pi.on('before_agent_start', async (event, ctx) => {
     guard(() => {
-      if (!cfg) return
       const key = sessionKey(ctx)
       startTimes.set(key, Date.now())
       if (!shouldNotify(ctx, event.prompt)) return
       const text = ['🟢 任务开始', `📍 目录: ${ctx.cwd}`, `📝 ${truncate(event.prompt ?? '(空请求)', 300)}`].join('\n')
-      safeNotify(cfg, text, 'task_start')
+      safeNotify(pi.events, text, 'task_start')
     })
   })
 
   // 任务完成（含最近一次工作总结）
   pi.on('agent_settled', async (_event, ctx) => {
     guard(() => {
-      if (!cfg) return
       const key = sessionKey(ctx)
       const started = startTimes.get(key)
       const elapsedSec = started ? Math.max(1, Math.round((Date.now() - started) / 1000)) : 0
@@ -95,18 +94,17 @@ export default function registerLifecycle(pi: ExtensionAPI, deps: LifecycleDeps)
         logError(`extract summary failed: ${err instanceof Error ? err.message : String(err)}`)
         summary = { prompt: '', finalAnswer: '', tools: [], errors: [] }
       }
-      safeNotify(cfg, formatTaskDoneSummary(summary, ctx.cwd, elapsedSec), 'task_done')
+      safeNotify(pi.events, formatTaskDoneSummary(summary, ctx.cwd, elapsedSec), 'task_done')
     })
   })
 
   // 会话结束（尽力发送，可用 PI_FEISHU_NOTIFY_SESSION_END=0 关闭）
   pi.on('session_shutdown', async (_event, ctx) => {
     guard(() => {
-      if (!cfg) return
       if (process.env.PI_FEISHU_NOTIFY_SESSION_END === '0') return
       if (!getEnabled()) return
       const text = ['🔚 会话结束', `📍 目录: ${ctx.cwd}`].join('\n')
-      safeNotify(cfg, text, 'session_end')
+      safeNotify(pi.events, text, 'session_end')
     })
   })
 }

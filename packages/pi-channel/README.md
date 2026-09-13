@@ -1,0 +1,70 @@
+# pi-channel（`@alphagodzilla/pi-channel`）
+
+pi 的**外部通信 channel 插件**：独占 provider 凭据与连接生命周期（飞书长连接 / Telegram 长轮询），通过 `ag-pi-channel:*` 事件契约向其它扩展提供传输能力。消费方**不依赖任何代码**，只发/收事件——包括跨仓库的 `@juicesharp/rpiv-ask-user-question`。
+
+## 事件契约
+
+| 通道 | 方向 | 载荷 |
+| --- | --- | --- |
+| `ag-pi-channel:send` | 消费方 → 插件 | `{ requestId, provider: "feishu"\|"telegram", kind: "text"\|"card", to?: {id, type?}, text?, card?, update?: {messageId, text?}, parseMode?: "HTML"\|"MarkdownV2" }` |
+| `ag-pi-channel:send:result` | 插件 → 消费方 | `{ requestId, ok, messageId?, error?: {code, message} }` |
+| `ag-pi-channel:inbound` | 插件 → 消费方 | 消息：`{ kind:"message", chatId, chatType?, senderId, messageId, text, contentType, timestamp? }`；按钮：`{ kind:"action", chatId, senderId, messageId, value }` |
+| `ag-pi-channel:status` → `:status:result` | 双向 | 连接状态、配置路径、脱敏账号、最近错误 |
+
+约定：
+
+- **请求/响应用 `requestId` 关联**：pi 的 EventBus 是单向的（`emit(channel, data): void`），所以 result 走独立通道。同仓库消费方用 `sendViaBus()` / `statusViaBus()`；跨仓库消费方复制同一实现即可（契约一致，见 `lib/events.ts`）。
+- **卡片/键盘是 provider 原生结构**（飞书卡片 JSON / Telegram `reply_markup`），插件不理解其业务语义；按钮语义留在消费方。
+- 按钮 `value` 里带字符串字段 `ackText` 时，插件用它回 ack（飞书 3 秒回调响应 / Telegram `answerCallbackQuery`），缺省「已收到」。
+- 出站不要求已连接：飞书走 REST、Telegram 走 Bot API HTTP；`inbound: false` 时只做出站，不建连接。
+- 插件缺席或超时 → `ok:false`（`code: "timeout"` / `"not_configured"`），消费方据此降级，**绝不抛异常打断主流程**。
+
+```ts
+// 消费方示例（同仓库）
+import { sendViaBus } from "./lib/events.ts";
+const result = await sendViaBus(pi.events, { provider: "feishu", kind: "text", text: "任务完成" });
+if (!result.ok) logError(`${result.error?.code}: ${result.error?.message}`);
+```
+
+## 配置
+
+唯一来源：`~/.pi/agent/extensions/pi-channel/config.json`（**不在仓库内**；目录约定见仓库根 `AGENTS.md`）。完整示例见 [`config.example.json`](./config.example.json)。
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `feishu.appId` / `feishu.appSecret` | ✓ | 飞书自建应用凭证（需开启机器人能力） |
+| `feishu.domain` | | `feishu`（缺省）\| `lark` |
+| `feishu.inbound` | | 是否建长连接收消息/卡片回调，缺省 `true` |
+| `feishu.requireMention` | | 群聊仅 @ 机器人 才算入站，缺省 `true` |
+| `feishu.dmMode` | | `open`（缺省）\| `allowlist` \| `pair` \| `disabled`（对齐 SDK `PolicyConfig`） |
+| `feishu.defaultReceiver` | | 缺省收件人 `{ type, value }`（消费方不带 `to` 时使用） |
+| `telegram.botToken` | ✓ | Bot token |
+| `telegram.inbound` | | 是否长轮询收消息/按钮，缺省 `true` |
+| `telegram.defaultChatId` | | 缺省收件人 chat id |
+| `telegram.proxy` | | 可选 HTTP(S) 代理，如 `http://127.0.0.1:6152` |
+
+## 运行数据
+
+- `~/.pi/agent/extensions/pi-channel/error.log` —— 连接/发送失败日志（绝不写 console，避免污染 TUI/cmux）。
+
+## 命令
+
+| 命令 | 说明 |
+| --- | --- |
+| `/channel` 或 `/channel status` | 显示两个 provider 的配置/连接状态与配置路径 |
+| `/channel reload` | 重载 `config.json` 并重建连接 |
+| `/channel send <文本>` | 用缺省收件人做一次真实发送，验证链路 |
+
+## 能力来源与迁移
+
+- 飞书与 Telegram 的传输层自 `@juicesharp/rpiv-ask-user-question` 移植（2026-09-13）：`remote/feishu-channel.ts`（长连接、卡片回调 3s ack 注入、ack 后 400ms 再断连）、`remote/tg-channel.ts` + `remote/tg-http.ts`（零依赖 HTTP + 代理、长轮询去重）。
+- 凭据从 `~/.config/rpiv-ask-user-question/config.json` 的 `remote.feishu` / `remote.tg` 搬到本插件配置（**本插件是唯一凭据持有者**）。
+- 消费方：`pi-remote-notify`（出站提醒）、`rpiv-ask-user-question`（双向问卷；卡片构建与回复解析等业务语义仍留在该包）。
+
+## 测试
+
+```bash
+node --test packages/pi-channel/test/*.test.ts
+```
+
+43 项（feishu 16 / telegram 21 / 入口集成 6）：注入假 client、假 channel 与假 `getUpdates` fetch，**全程不触网**；入口集成用 pi 自带 `createEventBus()` + 假 pi 验证事件分发、状态回报与 `/channel` 命令。

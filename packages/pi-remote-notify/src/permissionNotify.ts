@@ -5,11 +5,12 @@
  * （唯一发射点 LocalUserAuthorizer.authorize），本模块订阅该通道，把权限请求
  * 转发为飞书提醒——pi 在后台/远程时也能及时知道"需要你授权"。
  *
+ * 发送经 pi-channel 的 `ag-pi-channel:send` 事件（凭据/投递由 pi-channel 负责）。
+ *
  * payload 结构参考 pi-cmux 的 permissionNotify.ts（不修改/依赖它）。
  */
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import type { FeishuConfig } from './config.ts'
-import { safeNotify } from './feishu.ts'
+import { safeNotify } from './notify.ts'
 
 const PERMISSIONS_UI_PROMPT_CHANNEL = 'permissions:ui_prompt'
 
@@ -34,12 +35,10 @@ function truncate(text: string, limit = 500): string {
 
 export type PermissionNotifyDeps = {
   getEnabled: () => boolean
-  cfg: FeishuConfig | null
 }
 
 export default function registerPermissionNotify(pi: ExtensionAPI, deps: PermissionNotifyDeps): void {
-  const { getEnabled, cfg } = deps
-  if (!cfg) return
+  const { getEnabled } = deps
 
   pi.events.on(PERMISSIONS_UI_PROMPT_CHANNEL, (data: unknown) => {
     if (!getEnabled()) return
@@ -52,6 +51,6 @@ export default function registerPermissionNotify(pi: ExtensionAPI, deps: Permiss
       `🔐 需要你的授权${isSubagent ? '（子代理）' : ''}`,
       `${agentPrefix}${truncate(event.message)}`,
     ].join('\n')
-    safeNotify(cfg, text, 'permission_prompt')
+    safeNotify(pi.events, text, 'permission_prompt')
   })
 }
