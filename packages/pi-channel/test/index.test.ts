@@ -218,6 +218,26 @@ test("/channel 命令：status 输出状态行，send 提示用户，reload 重�
 	assert.match(pi.notices.at(-1)?.msg ?? "", /飞书: 出站模式/);
 });
 
+test("/channel 命令：stale 命令 ctx（reload 后）不会让 notify 抛错打崩 pi", async () => {
+	rmSync(CONFIG_PATH, { force: true });
+	const pi = makeFakePi();
+	const command = pi.commands.get("channel");
+	assert.ok(command);
+	const staleCtx = {
+		hasUI: true,
+		ui: {
+			notify: () => {
+				throw new Error("This extension ctx is stale after session replacement or reload.");
+			},
+		},
+	};
+	// 1) 实例还在、命令 ctx 已 stale：notify 抛错必须被吞掉（以前会成为 unhandledRejection）
+	await assert.doesNotReject(() => command.handler("status", staleCtx));
+	// 2) 实例已退休（reload）：连 notify 都不该尝试
+	await pi.handlers.get("session_shutdown")?.({ reason: "reload" }, uiCtx(pi.notices));
+	await assert.doesNotReject(() => command.handler("status", staleCtx));
+});
+
 test.after(() => {
 	clearInterval(keepAlive);
 	rmSync(AGENT_DIR, { recursive: true, force: true });

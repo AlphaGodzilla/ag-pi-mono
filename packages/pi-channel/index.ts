@@ -52,9 +52,19 @@ export default function piChannel(pi: ExtensionAPI): void {
 	/** 最近一次连接/发送失败原因，供 /channel status 展示 */
 	const lastErrors = new Map<ChannelProvider, string>();
 
+	/**
+	 * 向用户输出。命令的 ctx 在 `/reload` 之后同样会被 pi 判定 stale（它只保证 reload 前的命令 ctx 有效），
+	 * 而这里的调用点可能在命令的**异步续体**里（等发送结果之后）——因此先判 `retired`，再 try/catch 吞错，
+	 * 否则 notify 抛错会变成 unhandledRejection → pi uncaughtException 退出（与 `respond` 的 stale 崩溃同类）。
+	 */
 	const report = (ctx: UiCtx, msg: string, level: "info" | "warning" = "info"): void => {
-		if (ctx.hasUI) ctx.ui.notify(msg, level);
-		else console.log(msg);
+		if (retired) return;
+		try {
+			if (ctx.hasUI) ctx.ui.notify(msg, level);
+			else console.log(msg);
+		} catch (err) {
+			logError(`notify failed (stale command ctx after reload?): ${err instanceof Error ? err.message : String(err)}`);
+		}
 	};
 
 	function noteError(provider: ChannelProvider, err: unknown): string {
@@ -131,6 +141,7 @@ export default function piChannel(pi: ExtensionAPI): void {
 	};
 
 	async function connectAll(): Promise<void> {
+		if (retired) return; // 作废实例不再重建连接（例如 reload 期间还在跑的 /channel reload）
 		if (isFeishuConfigured(cfg)) {
 			try {
 				await feishu.connect(cfg.feishu, emitInbound);
