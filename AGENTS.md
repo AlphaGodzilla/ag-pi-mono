@@ -1,6 +1,33 @@
 # pi-mono 开发约定
 
-本文件面向在本仓库工作的 AI 助手与协作者。核心是**提交规范**，另附提交前的最低检查。
+本文件面向在本仓库工作的 AI 助手与协作者，包含两部分约定：**扩展开发约定**（配置与运行数据放哪、如何解析）与**提交规范**（含提交前的最低检查）。
+
+## 扩展开发约定
+
+### 配置与运行数据一律放 extensions 目录
+
+扩展的**用户配置与运行时数据放在 pi 用户目录下的扩展同名子目录里，绝不放进仓库**：
+
+```
+~/.pi/agent/extensions/<包目录名>/      # 包目录名不含 scope，如 pi-remote-notify
+├── config.json      # 用户配置（仓库内只放 config.example.json 模板）
+├── state.json       # 运行状态（开关、游标、缓存等）
+└── error.log        # 运行日志（绝不写 console，避免污染 TUI / cmux）
+```
+
+- **路径拼接**：`join(getAgentDir(), 'extensions', '<包目录名>', 'config.json')`。`getAgentDir()` 来自 `@earendil-works/pi-coding-agent`，它尊重 `PI_CODING_AGENT_DIR`，因此测试可用它把目录指到临时目录。
+- **读取顺序**：用户配置目录优先 → 缺失时回落旧位置（包目录 `config.json` 或历史来源），保证老配置不失效。
+- **写入位置**：只写用户配置目录，旧位置只读兜底；写前 `mkdirSync(dirname(file), { recursive: true })`。
+- 该目录可安全用作配置目录：pi 扫描 `extensions/` 时只认 `.ts`/`.js` 文件与含 `index.ts`/`package.json` 的子目录，只放配置/数据的子目录会被跳过。
+- 环境变量逃生舱可保留（如 `PI_FEISHU_NOTIFY_*`、`DEROUTER_BALANCE_*`），但其优先级必须在包 README 写明，不要静默改动既有行为（现状：`pi-llm-provider-balance` 是 env 覆盖 config，`pi-remote-notify` 是 config 优先于 env）。
+- **不要提交真实配置**：仓库内只提交 `config.example.json`；含密钥的路径写进根 `.gitignore`。
+- 参考实现：`packages/pi-llm-provider-balance/index.ts` 的 `resolveConfigPath()`、`packages/pi-remote-notify/src/{config,state,feishu}.ts`。
+- 涉及配置/状态解析的改动必须补单测：用 `PI_CODING_AGENT_DIR` 指向 `mkdtempSync()` 的临时目录，不触碰真实配置。
+
+### 其它
+
+- 新功能默认并入已有包（见根 README「包一览」），不新开小包；确有独立开关/信任边界需求时才新建。
+- 新增包放进 `packages/*`（自动纳入根 `tsconfig.json` 的类型检查），并补 `package.json` 的 `pi` manifest 与 `config.example.json`（如需配置）。
 
 ## 提交规范
 
