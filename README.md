@@ -45,9 +45,18 @@ pi 通过 `~/.pi/agent/settings.json` 的 `packages` 数组按路径加载本地
 
 `pi-cmux` 与 `pi-context-watchdog` 目前不在 `packages` 中（也不在自动扫描的 `extensions/` 目录里），因此 pi 不会加载它们；需要启用时再追加 `pi-mono/packages/pi-cmux`、`pi-mono/packages/pi-context-watchdog`。
 
-## 凭据
+## 配置与运行数据目录约定
 
-`packages/pi-llm-provider-balance/config.json` 是本机真实配置（含 API key），已由 `.gitignore` 排除，**不要提交**；模板见同目录 `config.example.json`。
+扩展的**用户配置不进仓库**，统一放在 pi 用户目录下的同名子目录：
+
+```
+~/.pi/agent/extensions/<扩展名>/config.json      # 扩展名 = 包目录名（不含 scope），如 pi-llm-provider-balance
+```
+
+- 该目录可安全用作配置目录：pi 扫描 `extensions/` 时只认 `.ts`/`.js` 文件与含 `index.ts`/`package.json` 的子目录，只放 `config.json` 的子目录会被跳过。
+- 解析顺序：**用户配置目录优先**，缺失时回落到包目录内的同名文件（旧位置，兼容用）。
+- 运行数据同放该目录：`pi-remote-notify` 的 `state.json`（`/remote-notify` 开关）与 `error.log`。
+- 各包提供 `config.example.json` 模板；`packages/pi-llm-provider-balance/config.json` 仍被 `.gitignore` 排除，仅作为兜底位置的保险。
 
 ## 迁移记录
 

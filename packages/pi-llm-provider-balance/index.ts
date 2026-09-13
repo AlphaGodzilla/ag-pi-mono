@@ -19,7 +19,10 @@
 // 模块作废（quit / reload / 跨 cwd 会话替换）或会话结束时清 interval；
 // 仍有其它存活会话则保留。切换会话后由新 session_start 重建并首拉一次。
 //
-// 配置：同目录 config.json ——
+// 配置文件查找顺序（先命中先用）：
+//   1. ~/.pi/agent/extensions/pi-llm-provider-balance/config.json（用户配置，推荐；不在仓库内）
+//   2. 本包目录 config.json（开发期/旧位置，兜底）
+// 格式 ——
 //   {
 //     "derouterClientKey": "...",              // derouter client key（必需，否则 derouter 源不可用）
 //     "refreshIntervalMs": 600000,             // 可选，轮询间隔
@@ -32,8 +35,8 @@
 //     }
 //   }
 // 安全：client key / api key 只在本模块内用于请求头，绝不打印/写日志/注入 LLM 上下文。
-import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { readFileSync } from 'node:fs'
+import { getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { extractRemaining, formatRemaining, buildAuthHeaders } from './lib/balance.ts'
@@ -44,6 +47,17 @@ const DEROUTER_API_URL = 'https://cf-api.derouter.ai/sub-key/balance'
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/user/balance'
 const DEFAULT_INTERVAL_MS = 60_000
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url))
+const EXTENSION_NAME = 'pi-llm-provider-balance'
+
+/**
+ * 配置文件路径：优先用户配置目录，缺失时回落到包目录内（旧位置）。
+ * 用户配置目录刻意放在 ~/.pi/agent/extensions/<扩展名>/ —— pi 只把该目录下的 .ts/.js
+ * 以及含 index.ts/package.json 的子目录当扩展加载，只放 config.json 的子目录会被跳过。
+ */
+export function resolveConfigPath(): string {
+  const userConfig = join(getAgentDir(), 'extensions', EXTENSION_NAME, 'config.json')
+  return existsSync(userConfig) ? userConfig : join(EXTENSION_DIR, 'config.json')
+}
 
 /** 余额源类型：derouter 中转账户 / DeepSeek 官方账户 */
 type BalanceSource = 'derouter' | 'deepseek'
@@ -61,10 +75,10 @@ interface ExtensionConfig {
   providerBalanceSources?: Record<string, BalanceSource>
 }
 
-function loadConfig(): ExtensionConfig {
+export function loadConfig(): ExtensionConfig {
   let cfg: ExtensionConfig
   try {
-    const raw = readFileSync(join(EXTENSION_DIR, 'config.json'), 'utf8')
+    const raw = readFileSync(resolveConfigPath(), 'utf8')
     cfg = JSON.parse(raw) as ExtensionConfig
   } catch {
     // 配置缺失/非法：退化为空 key，refresh 走错误态，不阻塞启动

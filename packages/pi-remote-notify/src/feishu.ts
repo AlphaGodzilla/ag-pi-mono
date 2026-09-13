@@ -9,8 +9,8 @@
  * `new Client(...)` 走 REST API，不创建/连接 websocket 长连接，避免与
  * 现有 feishu gateway 的长连接资源相互影响。
  */
-import { appendFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { getAgentDir } from '@earendil-works/pi-coding-agent'
 import { Client, type Logger } from '@larksuiteoapi/node-sdk'
 import type { FeishuConfig } from './config.ts'
@@ -61,10 +61,12 @@ export function safeNotify(cfg: FeishuConfig | null, text: string, tag: string):
   })
 }
 
-/** 写入 ~/.pi/agent/feishu/remote-notify-error.log（绝不写 console，避免污染 TUI/cmux）。 */
+/** 写入 ~/.pi/agent/extensions/pi-remote-notify/error.log（与本扩展 config.json 同目录；
+ *  绝不写 console，避免污染 TUI/cmux）。 */
 export function logError(line: string): void {
   try {
-    const file = join(getAgentDir(), 'feishu', 'remote-notify-error.log')
+    const file = join(getAgentDir(), 'extensions', 'pi-remote-notify', 'error.log')
+    mkdirSync(dirname(file), { recursive: true })
     appendFileSync(file, `[${new Date().toISOString()}] ${line}\n`, 'utf8')
   } catch {
     // 日志写入失败也静默，绝不影响主流程

@@ -55,13 +55,33 @@ npm install
 
 加载顺序（先命中的生效）：
 
-1. **环境变量**（`PI_FEISHU_NOTIFY_*`，显式覆盖）
-2. **ask-question 插件配置** `~/.config/rpiv-ask-user-question/config.json`（默认，已验证可用）
-3. **现有飞书桥接** `~/.pi/agent/feishu/`（兜底）
+1. **本扩展自有配置** `~/.pi/agent/extensions/pi-remote-notify/config.json`（推荐）
+2. **环境变量**（`PI_FEISHU_NOTIFY_*`，显式覆盖）
+3. **ask-question 插件配置** `~/.config/rpiv-ask-user-question/config.json`（已验证可用）
+4. **现有飞书桥接** `~/.pi/agent/feishu/`（兜底）
 
-三者都不可用时不发送（插件静默禁用，不影响其它扩展）。
+四者都不可用时不发送（插件静默禁用，不影响其它扩展）。
 
-### 方式 A：ask-question 配置（推荐，默认）
+### 方式 A：本扩展自有配置（推荐）
+
+文件 `~/.pi/agent/extensions/pi-remote-notify/config.json`（**不在仓库内**）：
+
+```jsonc
+{
+  "appId": "cli_xxxxxxxxxxxxxxxx",
+  "appSecret": "xxxxxxxxxxxxxxxxxxxx",
+  "domain": "feishu",
+  "receiveId": "oc_xxxxxxxxxxxxxxxxxxx",
+  "receiveIdType": "chat_id"
+}
+```
+
+- `appId` / `appSecret` / `receiveId` 三项齐备才算命中（缺任一项即跳到下一来源）
+- `receiveIdType` 缺省 `chat_id`，可取飞书原生 `receive_id_type`（`chat_id` / `open_id` / `user_id` / `union_id` / `email`）
+- `domain`：`feishu`（缺省）| `lark`
+- 完整模板见 [`config.example.json`](./config.example.json)
+
+### 方式 B：ask-question 配置（复用其它插件凭证）
 
 复用 rpiv-ask-user-question 插件的飞书应用凭证。文件 `~/.config/rpiv-ask-user-question/config.json`：
 
@@ -81,16 +101,16 @@ npm install
 - `receivers[0]`：通知收件人，`type` 为飞书原生 `receive_id_type`（`chat_id` / `open_id` / `user_id` / `union_id` / `email`），插件取第一个
 - 只读取 `remote.feishu` 三项，其它字段不影响
 
-### 方式 B：现有飞书桥接（兜底）
+### 方式 C：现有飞书桥接（兜底）
 
-若方式 A 缺失/非法，回退读取 `~/.pi/agent/feishu/`：
+若方式 A/B 都缺失或非法，回退读取 `~/.pi/agent/feishu/`：
 
 - `config.json` → `appId` / `appSecret` / `domain`（`feishu` | `lark`）
 - `bridge.json` → 第一个 route 的 `chatId`（p2p 会话），无则取 p2p key 中的 `open_id`
 
-> ⚠️ 注意：`~/.pi/agent/feishu/config.json` 里的应用此前已被删除（错误码 `10217 app has been deleted`），因此默认走方式 A。
+**> ⚠️ 注意：**`~/.pi/agent/feishu/config.json` 里的应用此前已被删除（错误码 `10217 app has been deleted`），所以实际使用的是方式 A（自有配置）或方式 B（ask-question 配置）。
 
-### 方式 C：环境变量（可选覆盖）
+### 方式 D：环境变量（可选覆盖）
 
 | 变量 | 作用 |
 | --- | --- |
@@ -103,6 +123,16 @@ npm install
 | `PI_FEISHU_NOTIFY_INCLUDE_SUBAGENTS=1` | 也通知 subagent 会话（默认跳过） |
 | `PI_FEISHU_NOTIFY_SESSION_END=0` | 关闭会话结束提醒 |
 
+> 注意：自有 `config.json` 命中时优先于上表环境变量（config > env）。
+
+
+### 运行数据（与 config.json 同目录）
+
+| 文件 | 说明 |
+| --- | --- |
+| `~/.pi/agent/extensions/pi-remote-notify/state.json` | `/remote-notify` 开关状态（旧位置 `~/.pi/agent/feishu/remote-notify-state.json` 仍可读，不再写入） |
+| `~/.pi/agent/extensions/pi-remote-notify/error.log` | 发送失败等错误日志（绝不写 console，避免污染 TUI） |
+
 ## 使用
 
 ### 命令
@@ -114,7 +144,7 @@ npm install
 | `/remote-notify off` | 关闭 |
 | `/remote-notify status` | 查看当前状态 |
 
-开关状态持久化到 `~/.pi/agent/feishu/remote-notify-state.json`，重启 pi 后保持上次状态。
+开关状态持久化到 `~/.pi/agent/extensions/pi-remote-notify/state.json`（旧位置 `~/.pi/agent/feishu/remote-notify-state.json` 仍可读），重启 pi 后保持上次状态。
 
 ### 触发的事件与通知内容
 

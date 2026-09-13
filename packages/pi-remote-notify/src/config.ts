@@ -1,10 +1,12 @@
 /**
  * remote-notify 配置加载。
  *
- * 凭证与收件人默认复用 ask-question 插件（rpiv-ask-user-question）的飞书配置
- * `~/.config/rpiv-ask-user-question/config.json` 的 `remote.feishu`（已验证可用）；
- * 若缺失/非法则回退到现有飞书桥接 `~/.pi/agent/feishu/`（config.json + bridge.json）。
- * 均可用 PI_FEISHU_NOTIFY_* 环境变量覆盖。
+ * 来源优先级（先命中先用）：
+ *   1. 本扩展自有配置 `~/.pi/agent/extensions/pi-remote-notify/config.json`
+ *      （appId / appSecret / receiveId / receiveIdType / domain）
+ *   2. 环境变量 `PI_FEISHU_NOTIFY_*`（显式覆盖）
+ *   3. ask-question 插件配置 `~/.config/rpiv-ask-user-question/config.json` 的 `remote.feishu`（已验证可用）
+ *   4. 现有飞书桥接 `~/.pi/agent/feishu/`（config.json + bridge.json）兜底
  *
  * 任何来源缺失/非法时返回 null（发送功能静默禁用，不影响其它扩展）。
  */
@@ -24,6 +26,25 @@ export type FeishuConfig = {
 
 const FEISHU_DIR = join(getAgentDir(), 'feishu')
 const ASK_QUESTION_CONFIG = join(homedir(), '.config', 'rpiv-ask-user-question', 'config.json')
+
+const EXTENSION_NAME = 'pi-remote-notify'
+
+/**
+ * 本扩展自有配置路径：~/.pi/agent/extensions/pi-remote-notify/config.json
+ * （pi 只把 extensions/ 下的 .ts/.js 与含 index.ts/package.json 的子目录当扩展加载，
+ *   只放 config.json 的子目录会被跳过，因此该目录可安全用作配置目录）
+ */
+export function ownConfigPath(): string {
+  return join(getAgentDir(), 'extensions', EXTENSION_NAME, 'config.json')
+}
+
+type OwnConfig = {
+  appId?: string
+  appSecret?: string
+  domain?: string
+  receiveId?: string
+  receiveIdType?: FeishuConfig['receiveIdType']
+}
 
 function readJson<T>(file: string): T | null {
   try {
@@ -62,6 +83,18 @@ function fromAskQuestion(): Pick<FeishuConfig, 'appId' | 'appSecret' | 'receiveI
   }
 }
 
+/** 从本扩展自有配置解析（appId/appSecret/receiveId 三者齐备才算命中）。 */
+function fromOwnConfig(): Pick<FeishuConfig, 'appId' | 'appSecret' | 'receiveId' | 'receiveIdType'> | null {
+  const f = readJson<OwnConfig>(ownConfigPath())
+  if (!f?.appId || !f?.appSecret || !f?.receiveId) return null
+  return {
+    appId: f.appId,
+    appSecret: f.appSecret,
+    receiveId: f.receiveId,
+    receiveIdType: f.receiveIdType ?? 'chat_id',
+  }
+}
+
 /** 从现有飞书桥接解析（config.json 凭证 + bridge.json 会话），兜底来源。 */
 function fromFeishuBridge(): Pick<FeishuConfig, 'appId' | 'appSecret' | 'receiveId' | 'receiveIdType'> | null {
   const cfg = readJson<{ appId?: string; appSecret?: string; domain?: string }>(join(FEISHU_DIR, 'config.json'))
@@ -84,7 +117,14 @@ function fromFeishuBridge(): Pick<FeishuConfig, 'appId' | 'appSecret' | 'receive
 }
 
 export function loadFeishuConfig(): FeishuConfig | null {
-  // 环境变量优先（显式覆盖）
+  // 1) 本扩展自有配置优先
+  const own = fromOwnConfig()
+  if (own) {
+    const ownDomain = readJson<OwnConfig>(ownConfigPath())?.domain
+    return { ...own, domain: resolveDomain(ownDomain) }
+  }
+
+  // 2) 环境变量（显式覆盖）
   const envAppId = process.env.PI_FEISHU_NOTIFY_APP_ID
   const envAppSecret = process.env.PI_FEISHU_NOTIFY_APP_SECRET
   const envChatId = process.env.PI_FEISHU_NOTIFY_CHAT_ID
@@ -103,7 +143,7 @@ export function loadFeishuConfig(): FeishuConfig | null {
     }
   }
 
-  // ask-question 配置（已验证可用）优先，现有桥接兜底
+  // 3) ask-question 配置（已验证可用）→ 4) 现有桥接兜底
   const source = fromAskQuestion() ?? fromFeishuBridge()
   if (!source) return null
 

@@ -49,8 +49,14 @@ pi install git:github.com/AlphaGodzilla/pi-llm-provider-balance
 
 ## 配置
 
-配置文件为扩展同目录下的 `config.json`（无此文件时扩展降级为空配置，仅显示
-unavailable，不影响 pi 启动）。完整示例见 [`config.example.json`](./config.example.json)：
+配置文件放在 pi 用户目录下（**不在仓库内**）：
+
+```
+~/.pi/agent/extensions/pi-llm-provider-balance/config.json
+```
+
+查不到它时回落到**包目录内的 `config.json`**（旧位置/开发期用）；两处都没有则降级为空配置，仅显示
+unavailable，不影响 pi 启动。完整示例见 [`config.example.json`](./config.example.json)：
 
 ```json
 {
@@ -102,8 +108,7 @@ unavailable，不影响 pi 启动）。完整示例见 [`config.example.json`](.
 pi-llm-provider-balance/
 ├── index.ts                  # 扩展入口：事件、单例、定时器、渲染
 ├── package.json              # 标准 pi 包声明（pi.extensions manifest + pi-package 关键词）
-├── config.json               # 本机真实配置（含 key，被 .gitignore 排除，勿提交）
-├── config.example.json       # 配置示例
+├── config.example.json       # 配置示例（真实配置在 ~/.pi/agent/extensions/pi-llm-provider-balance/config.json）
 ├── lib/
 │   ├── balance.ts            # derouter 余额解析/格式化（纯逻辑）
 │   └── deepseek.ts           # DeepSeek 余额解析/格式化（纯逻辑）
@@ -117,7 +122,7 @@ pi-llm-provider-balance/
 node --test test/*.test.ts
 ```
 
-手动验证真实接口（需要 config.json 中已填对应 key，仅打印余额不打印 key）：
+手动验证真实接口（需要用户配置或包目录的 `config.json` 中已填对应 key，仅打印余额不打印 key）：
 
 ```bash
 node scripts/manual-fetch.mjs derouter

@@ -1,0 +1,7 @@
+{
+  "appId": "cli_xxxxxxxxxxxxxxxx",
+  "appSecret": "YOUR_APP_SECRET",
+  "domain": "feishu",
+  "receiveId": "oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "receiveIdType": "chat_id"
+}

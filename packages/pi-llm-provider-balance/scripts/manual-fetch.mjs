@@ -3,19 +3,26 @@
 //   derouter  — 打印 derouter remaining（默认）
 //   deepseek  — 打印 DeepSeek total_balance + currency
 // 说明：仅打印余额与错误状态，绝不打印任何 key。
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const dir = dirname(fileURLToPath(import.meta.url))
 const root = join(dir, '..')
-const cfg = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8'))
+const EXTENSION_NAME = 'pi-llm-provider-balance'
+
+// 与 index.ts 一致：用户配置目录优先，缺失时回落包目录
+const agentDir = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent')
+const userConfig = join(agentDir, 'extensions', EXTENSION_NAME, 'config.json')
+const cfgPath = existsSync(userConfig) ? userConfig : join(root, 'config.json')
+const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'))
 
 const source = process.argv[2] === 'deepseek' ? 'deepseek' : 'derouter'
 const keyField = source === 'derouter' ? 'derouterClientKey' : 'deepseekApiKey'
 const key = (cfg[keyField] ?? '').trim()
 if (!key) {
-  console.error(`config.json 缺少 ${keyField}，请先填入真实 key 再运行`)
+  console.error(`配置缺少 ${keyField}，请先填入真实 key 再运行：${cfgPath}`)
   process.exit(1)
 }
 

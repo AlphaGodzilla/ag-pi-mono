@@ -9,8 +9,8 @@
  */
 import { createJiti } from 'jiti'
 import { execSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
@@ -32,7 +32,7 @@ process.env.PI_CODING_AGENT_DIR = TEST_AGENT_DIR
 const PI_DIST = resolvePiDist()
 const { createEventBus, getAgentDir } = await import(PI_DIST)
 const EXT_DIR = join(fileURLToPath(new URL('..', import.meta.url)))
-const STATE_FILE = join(getAgentDir(), 'feishu', 'remote-notify-state.json')
+const STATE_FILE = join(getAgentDir(), 'extensions', 'pi-remote-notify', 'state.json')
 
 const jiti = createJiti(import.meta.url, {
   moduleCache: false,
@@ -146,6 +146,42 @@ try {
   console.error = beforeError
 }
 check('关闭态事件触发无发送/无报错', errorLog.length === 0, errorLog)
+
+// ---- 扩展自有配置目录：~/.pi/agent/extensions/pi-remote-notify/ ----
+console.log('[5] 自有 config.json / state.json 落点与优先级')
+const { Domain } = await import('@larksuiteoapi/node-sdk')
+const { loadFeishuConfig, ownConfigPath } = await jiti.import(join(EXT_DIR, 'src', 'config.ts'))
+const { statePath, loadState } = await jiti.import(join(EXT_DIR, 'src', 'state.ts'))
+
+check('ownConfigPath 指向 extensions/pi-remote-notify/config.json',
+  ownConfigPath() === join(TEST_AGENT_DIR, 'extensions', 'pi-remote-notify', 'config.json'))
+check('statePath 指向 extensions/pi-remote-notify/state.json',
+  statePath() === join(TEST_AGENT_DIR, 'extensions', 'pi-remote-notify', 'state.json'))
+
+mkdirSync(dirname(ownConfigPath()), { recursive: true })
+writeFileSync(ownConfigPath(), JSON.stringify({
+  appId: 'cli_own', appSecret: 'secret_own', receiveId: 'oc_own', receiveIdType: 'chat_id', domain: 'lark',
+}), 'utf8')
+const ownCfg = loadFeishuConfig()
+check('自有 config.json 生效（appId/receiveId/domain=lark）',
+  ownCfg?.appId === 'cli_own' && ownCfg?.receiveId === 'oc_own' && ownCfg?.domain === Domain.Lark)
+
+process.env.PI_FEISHU_NOTIFY_APP_ID = 'cli_env'
+process.env.PI_FEISHU_NOTIFY_APP_SECRET = 'secret_env'
+process.env.PI_FEISHU_NOTIFY_CHAT_ID = 'oc_env'
+check('自有 config.json 优先于 env（config > env）', loadFeishuConfig()?.appId === 'cli_own')
+delete process.env.PI_FEISHU_NOTIFY_APP_ID
+delete process.env.PI_FEISHU_NOTIFY_APP_SECRET
+delete process.env.PI_FEISHU_NOTIFY_CHAT_ID
+rmSync(ownConfigPath())
+
+// 旧位置 state（~/.pi/agent/feishu/remote-notify-state.json）仍可读
+rmSync(statePath(), { force: true })
+const legacyState = join(TEST_AGENT_DIR, 'feishu', 'remote-notify-state.json')
+mkdirSync(dirname(legacyState), { recursive: true })
+writeFileSync(legacyState, JSON.stringify({ enabled: true }), 'utf8')
+check('旧位置 state 仍可读（兼容兜底）', loadState().enabled === true)
+rmSync(legacyState)
 
 // 清理隔离目录（含测试产生的状态文件，恢复默认关闭）
 if (existsSync(STATE_FILE)) rmSync(STATE_FILE)
