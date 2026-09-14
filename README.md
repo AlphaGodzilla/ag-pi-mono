@@ -1,4 +1,4 @@
-# pi-mono
+# ag-pi-mono
 
 pi 扩展单仓（monorepo）。原先分散在 `~/.pi/agent/` 下的 7 个本地扩展目录合并到这里，用 pnpm workspace 统一管理依赖、typecheck 与测试。
 
@@ -34,17 +34,17 @@ pnpm --filter @alphagodzilla/pi-tps test   # 单包
 
 pi 通过 `~/.pi/agent/settings.json` 的 `packages` 数组按路径加载本地包，包内由 `package.json` 的 `pi` manifest 决定加载哪些 `extensions` / `skills`。
 
-当前 `settings.json` **仍指向旧目录**（`pi-llm-provider-balance`、`pi-docs-gate`、`pi-gen-commit-msg-zh`、`pi-remote-notify/index.ts`、`pi-tps`），旧目录也仍保留在 `~/.pi/agent/` 下。要切到本仓，把对应条目改成：
+`~/.pi/agent/settings.json` 的 `packages` 以目录形式指向本仓的各包：
 
 ```json
-"pi-mono/packages/pi-llm-provider-balance",
-"pi-mono/packages/pi-docs-gate",
-"pi-mono/packages/pi-gen-commit-msg-zh",
-"pi-mono/packages/pi-remote-notify",
-"pi-mono/packages/pi-tps"
+"ag-pi-mono/packages/pi-llm-provider-balance",
+"ag-pi-mono/packages/pi-docs-gate",
+"ag-pi-mono/packages/pi-gen-commit-msg-zh",
+"ag-pi-mono/packages/pi-remote-notify",
+"ag-pi-mono/packages/pi-tps"
 ```
 
-`pi-cmux` 与 `pi-context-watchdog` 目前不在 `packages` 中（也不在自动扫描的 `extensions/` 目录里），因此 pi 不会加载它们；需要启用时再追加 `pi-mono/packages/pi-cmux`、`pi-mono/packages/pi-context-watchdog`。
+`pi-cmux` 与 `pi-context-watchdog` 目前不在 `packages` 中（也不在自动扫描的 `extensions/` 目录里），因此 pi 不会加载它们；需要启用时再追加 `ag-pi-mono/packages/pi-cmux`、`ag-pi-mono/packages/pi-context-watchdog`。
 
 ## 配置与运行数据目录约定
 

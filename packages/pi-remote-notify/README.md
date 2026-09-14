@@ -132,10 +132,10 @@ pi 扩展：**任务结束后通过飞书提醒你**，提醒内容包含**最�
 
 ## 测试
 
-测试在 pi-mono 仓库内运行（测试会与同仓的 pi-channel / pi-cmux 做契约与共存检查）：
+测试在 ag-pi-mono 仓库内运行（测试会与同仓的 pi-channel / pi-cmux 做契约与共存检查）：
 
 ```bash
-cd pi-mono
+cd ag-pi-mono
 
 # 独立测试：注册、toggle 持久化、摘要提取、
 # 事件契约（假装 pi-channel 应答 / 缺席降级）

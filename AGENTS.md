@@ -1,4 +1,4 @@
-# pi-mono 开发约定
+# ag-pi-mono 开发约定
 
 本文件面向在本仓库工作的 AI 助手与协作者，包含两部分约定：**扩展开发约定**（配置与运行数据放哪、如何解析）与**提交规范**（含提交前的最低检查）。
 
@@ -78,7 +78,7 @@ fix: resolve null narrowing in pi-tps firstDeltaAt
 
 ## 推送
 
-- 远端：`origin` = `https://github.com/AlphaGodzilla/pi-mono.git`（HTTPS，非 SSH）。
+- 远端：`origin` = `https://github.com/AlphaGodzilla/ag-pi-mono.git`（HTTPS，非 SSH）。
 - HTTPS 走 `gh` 的凭据助手，用的是 **gh 当前活跃账号**的 token。本机 gh 登录了 `victory-man`（默认活跃）与 `AlphaGodzilla` 两个账号，而本仓库属于 `AlphaGodzilla`，因此推送前先切账号、推完切回：
 
   ```bash

@@ -32,11 +32,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AlphaGodzilla/pi-mono.git",
+    "url": "git+https://github.com/AlphaGodzilla/ag-pi-mono.git",
     "directory": "packages/pi-tps"
   },
-  "homepage": "https://github.com/AlphaGodzilla/pi-mono/tree/main/packages/pi-tps#readme",
+  "homepage": "https://github.com/AlphaGodzilla/ag-pi-mono/tree/main/packages/pi-tps#readme",
   "bugs": {
-    "url": "https://github.com/AlphaGodzilla/pi-mono/issues"
+    "url": "https://github.com/AlphaGodzilla/ag-pi-mono/issues"
   }
 }
