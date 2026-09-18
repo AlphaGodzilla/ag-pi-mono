@@ -10,15 +10,18 @@ pi 的**外部通信 channel 插件**：独占 provider 凭据与连接生命周
 | `ag-pi-channel:send:result` | 插件 → 消费方 | `{ requestId, ok, messageId?, error?: {code, message} }` |
 | `ag-pi-channel:inbound` | 插件 → 消费方 | 消息：`{ kind:"message", chatId, chatType?, senderId, messageId, text, contentType, timestamp? }`；按钮：`{ kind:"action", chatId, senderId, messageId, value }` |
 | `ag-pi-channel:status` → `:status:result` | 双向 | 连接状态、配置路径、脱敏账号、最近错误 |
+| `ag-pi-channel:connect` → `:connect:result` | 双向 | 请求插件**把入站通道建好**再回结果：`{ requestId, provider }` → `{ requestId, ok, connected, error?: {code, message} }`。失败码：`not_configured` / `outbound_only`（`inbound: false`）/ `retired`（reload 后旧实例） |
+| `ag-pi-channel:release` → `:release:result` | 双向 | `connect` 的反向操作，**必须成对**：`{ requestId, provider }` → `{ requestId, ok, connected, error? }`（`connected` 是释放后该 provider 的真实状态，仍有别的持有者时为 true） |
 
 约定：
 
-- **请求/响应用 `requestId` 关联**：pi 的 EventBus 是单向的（`emit(channel, data): void`），所以 result 走独立通道。同仓库消费方用 `sendViaBus()` / `statusViaBus()`；跨仓库消费方复制同一实现即可（契约一致，见 `lib/events.ts`）。
+- **请求/响应用 `requestId` 关联**：pi 的 EventBus 是单向的（`emit(channel, data): void`），所以 result 走独立通道。同仓库消费方用 `sendViaBus()` / `statusViaBus()` / `connectViaBus()`；跨仓库消费方复制同一实现即可（契约一致，见 `lib/events.ts`）。
 - **卡片/键盘是 provider 原生结构**（飞书卡片 JSON / Telegram `reply_markup`），插件不理解其业务语义；按钮语义留在消费方。
 - 按钮 `value` 里带字符串字段 `ackText` 时，插件用它回 ack（飞书 3 秒回调响应 / Telegram `answerCallbackQuery`），缺省「已收到」。
 - 出站不要求已连接：飞书走 REST、Telegram 走 Bot API HTTP。`inbound: false` 表示只做出站、永不建连；`inbound: true` 也是**惰性**的（首次成功发送后才连，见「实现注意」）。
+- **需要入站的消费方必须 `connect` / `release` 成对**（`await connectViaBus(events, provider, 5_000)`，用完 `releaseViaBus(...)`）：① `connect` 保证「消息/卡片送达时入站已就绪」——否则「卡片已到飞书、长连接还在握手」窗口里的点击无处投递（飞书客户端 3 秒超时后才重试）；② `release` 让插件在无人持有时断开连接——否则本进程会长期占着 app 的长连接，而飞书对同一 app 的多连接是**选一条投递**，别的 pi 进程会抢走点击（症状：toast 弹了但卡片不变、需要连点好几次）。超时返回 `null`（插件缺席或老版本）时按老行为继续即可。
 - 插件缺席或超时 → `ok:false`（`code: "timeout"` / `"not_configured"` / `"plugin_missing"`），消费方据此降级，**绝不抛异常打断主流程**。
-- **消费方建议先做 pre-flight**：首次发送前 `await statusViaBus(pi.events, 1_500)`；返回 `null` 即插件未加载，比等 `send` 超时（默认 10s）快得多，也便于据此回落到其它交互路径（`rpiv-ask-user-question` 就是这么做的：通道不可用时改用本地 TUI 问卷并提示用户）。
+- **消费方建议先做 pre-flight**：首次发送前 `await statusViaBus(pi.events, 1_500)`；返回 `null` 即插件未加载，比等 `send` 超时（默认 10s）快得多，也便于据此回落到其它交互路径（`rpiv-ask-user-question` 就是这么做的：通道不可用时改用本地 TUI 问卷并提示用户）；若还需要入站（收回复/按钮点击），接着 `connect` 一次再发送。
 
 ```ts
 // 消费方示例（同仓库）
@@ -45,6 +48,7 @@ if (!result.ok) logError(`${result.error?.code}: ${result.error?.message}`);
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
+| `debug` | | **诊断开关**（顶层，缺省 `false`）：打开后把 SDK 日志（safety 去重/排队/丢弃、`[ws]` 时序）与卡片回调时序写进 `debug.log`。改完 `/channel reload` 即热生效；TUI 始终零输出 |
 | `feishu.appId` / `feishu.appSecret` | ✓ | 飞书自建应用凭证（需开启机器人能力） |
 | `feishu.domain` | | `feishu`（缺省）\| `lark` |
 | `feishu.inbound` | | 是否建长连接收消息/卡片回调，缺省 `true` |
@@ -59,6 +63,7 @@ if (!result.ok) logError(`${result.error?.code}: ${result.error?.message}`);
 ## 运行数据
 
 - `~/.pi/agent/extensions/pi-channel/error.log` —— 连接/发送失败日志（绝不写 console，避免污染 TUI/cmux）。
+- `~/.pi/agent/extensions/pi-channel/debug.log` —— **诊断日志**，仅当配置 `debug: true` 时写入（含 SDK safety 流水线与卡片回调/长连接时序，排「点击要连点几次」这类问题用）；默认关闭时该文件不产生。
 
 ## 命令
 
@@ -70,8 +75,8 @@ if (!result.ok) logError(`${result.error?.code}: ${result.error?.message}`);
 
 ## 实现注意（TUI 安全）
 
-- **惰性启动：启动零建连**。`session_start` 不注册任何连接钩子；只有消费方**首次成功发送**后，才 kick 该 provider 的入站通道（`inbound: false` 表示永不需要入站，直接跳过）。未被使用的 provider 不会被唤醒（分 provider 独立），所以未使用前 `/channel status` 显示未连接是正常的。
-- **kick 必须放在 `send()` 之后**：放在之前会让长连接的 token 获取与本次 REST 调用相撞（实测首次发送 ~0.8s → ~8s）；放在之后既不影响出站时延，也来得及在对方回复前把长连接建好。
+- **惰性 + 按需持有：启动零建连，发送也不再自动建连**。`session_start` 不注册任何连接钩子；连入站只有一条路径——消费方显式 `ag-pi-channel:connect`（`inbound: false` 表示永不入站）。`release` 之后计数归零即断开，所以 `/channel status` 在没人在等回复时显示「出站模式」是正常的。`/channel send` 命令是唯一的例外：它发送成功后显式唤醒一次入站，便于手动测「回复 / 点击」链路。
+- **多进程是这套设计的核心约束**：插件是全局扩展（每个 pi 进程都加载），而飞书对同一 app 的多条长连接**选一条投递**。历史教训：早期版本「发送成功就自动 kick 入站」，导致任何用过飞书的进程都常驻一条长连接；实测 4 个 pi 进程时，点击回调被投到没有待答问卷的实例上——那边照样按按钮 value 回 ack（toast），点击却被静默吞掉（用户反馈「点了 4 次以上才生效」）。现在只有 `connect` 过且未 `release` 的进程持有连接，且 `connect → send` 串行（首发等握手，实测飞书冷启动 ~2.5s）。
 - 顺带说：惰性化也是当初「`/reload` 时输入区消失数秒」的根治办法——pi 会逐个 `await` 扩展的 `session_start` handler，而启动即建连（飞书 2.6s + Telegram 0.8s）会把这段窗口拉到约 3 秒。
 - **飞书 SDK 的日志必须静音**：SDK 默认把 `[info]` 级日志（含长连接使用说明的整段横幅与 `[ws] ws client ready`）写到 stdout，在 pi TUI 里会**直接渲染进输入区**。因此给 `Client` 与 `createLarkChannel` 都传一个空实现的 `logger`，我们只写自己的 `error.log`。
 - **`reload` 时必须让旧实例收尾**：`session_shutdown(reason === "reload")` 触发 `void closeAll()`（`new`/`resume`/`fork` 不关，同一实例还要给后续会话用）。不关会留下僵尸长连接/长轮询——Telegram 上两个 poller 抢同一 token，日志出现 `409 conflict` 且旧版会让轮询停摆。关闭刻意**不 `await`**，避免重新拖长 reload。
