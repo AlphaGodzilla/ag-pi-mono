@@ -14,6 +14,10 @@
  *  - `ag-pi-channel:inbound`      插件 → 消费方：收到消息或按钮点击
  *  - `ag-pi-channel:status`       消费方 → 插件：查询连接状态
  *  - `ag-pi-channel:status:result` 插件 → 消费方：状态结果
+ *  - `ag-pi-channel:connect`       消费方 → 插件：请确保该 provider 入站就绪（发卡前消除冷启动丢击窗口）
+ *  - `ag-pi-channel:connect:result` 插件 → 消费方：入站就绪结果
+ *  - `ag-pi-channel:release`       消费方 → 插件：用完了，清掉入站持有（无人持有即断开）
+ *  - `ag-pi-channel:release:result` 插件 → 消费方：释放结果
  */
 
 export const CHANNEL_SEND = "ag-pi-channel:send";
@@ -21,6 +25,19 @@ export const CHANNEL_SEND_RESULT = "ag-pi-channel:send:result";
 export const CHANNEL_INBOUND = "ag-pi-channel:inbound";
 export const CHANNEL_STATUS = "ag-pi-channel:status";
 export const CHANNEL_STATUS_RESULT = "ag-pi-channel:status:result";
+/**
+ * 入站就绪请求：插件是惰性连接的（首次发送成功后才 kick 入站），因此「卡片已到飞书、长连接还没握完手」
+ * 的窗口里，用户的点击平台无处投递 → 丢掉 + 客户端 3s 超时重试。消费方在发卡前用这个请求把窗口消掉。
+ */
+export const CHANNEL_CONNECT = "ag-pi-channel:connect";
+export const CHANNEL_CONNECT_RESULT = "ag-pi-channel:connect:result";
+/**
+ * 入站释放请求：`connect` 的反向操作 —— 清掉一次持有，计数归零就断开入站连接。
+ * 为什么必须成对：飞书对同一 app 的多条长连接是选一条投递，插件又是全局扩展（每个 pi 进程都加载）。
+ * 只 connect 不 release 的进程会长期占着连接，把点击回调从「正在等回复」的进程那里抢走。
+ */
+export const CHANNEL_RELEASE = "ag-pi-channel:release";
+export const CHANNEL_RELEASE_RESULT = "ag-pi-channel:release:result";
 
 export type ChannelProvider = "feishu" | "telegram";
 
@@ -149,6 +166,32 @@ export type ChannelStatusResult = {
 	providers: ChannelProviderStatus[];
 };
 
+export type ChannelConnectRequest = {
+	requestId: string;
+	provider: ChannelProvider;
+};
+
+export type ChannelConnectResult = {
+	requestId: string;
+	ok: boolean;
+	/** 入站通道是否已经就绪（`ok:false` 时为 false） */
+	connected: boolean;
+	error?: { code: string; message: string };
+};
+
+export type ChannelReleaseRequest = {
+	requestId: string;
+	provider: ChannelProvider;
+};
+
+export type ChannelReleaseResult = {
+	requestId: string;
+	ok: boolean;
+	/** 释放之后该 provider 的实际连接状态：还有别的持有者（或未配置）时为 false */
+	connected: boolean;
+	error?: { code: string; message: string };
+};
+
 /** 消费方需要的最小事件总线形状（与 pi 的 EventBus 结构一致）。 */
 export type EventsLike = {
 	emit(channel: string, data: unknown): void;
@@ -222,5 +265,65 @@ export async function statusViaBus(events: EventsLike, timeoutMs = 5_000): Promi
 			finish(result);
 		});
 		events.emit(CHANNEL_STATUS, { requestId } satisfies ChannelStatusRequest);
+	});
+}
+
+/**
+ * 请求插件把该 provider 的入站通道建好（幂等），超时返回 `null`。
+ * `null` 有两种含义：插件未加载，或插件版本还没有 connect 契约 —— 调用方应照常继续（退化为惰性行为）。
+ */
+export async function connectViaBus(
+	events: EventsLike,
+	provider: ChannelProvider,
+	timeoutMs = 5_000,
+): Promise<ChannelConnectResult | null> {
+	const requestId = globalThis.crypto.randomUUID();
+	return await new Promise<ChannelConnectResult | null>((resolve) => {
+		let settled = false;
+		const finish = (result: ChannelConnectResult | null) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			unsubscribe();
+			resolve(result);
+		};
+		const timer = setTimeout(() => finish(null), timeoutMs);
+		timer.unref?.();
+		const unsubscribe = events.on(CHANNEL_CONNECT_RESULT, (data) => {
+			const result = data as ChannelConnectResult | undefined;
+			if (!result || result.requestId !== requestId) return;
+			finish(result);
+		});
+		events.emit(CHANNEL_CONNECT, { requestId, provider } satisfies ChannelConnectRequest);
+	});
+}
+
+/**
+ * `connectViaBus` 的反向操作：告诉插件「这个 provider 的入站我用完了」。
+ * 与它有同样的超时语义（超时返回 `null`，绝不抛异常）；调用方通常 fire-and-forget 即可。
+ */
+export async function releaseViaBus(
+	events: EventsLike,
+	provider: ChannelProvider,
+	timeoutMs = 5_000,
+): Promise<ChannelReleaseResult | null> {
+	const requestId = globalThis.crypto.randomUUID();
+	return await new Promise<ChannelReleaseResult | null>((resolve) => {
+		let settled = false;
+		const finish = (result: ChannelReleaseResult | null) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			unsubscribe();
+			resolve(result);
+		};
+		const timer = setTimeout(() => finish(null), timeoutMs);
+		timer.unref?.();
+		const unsubscribe = events.on(CHANNEL_RELEASE_RESULT, (data) => {
+			const result = data as ChannelReleaseResult | undefined;
+			if (!result || result.requestId !== requestId) return;
+			finish(result);
+		});
+		events.emit(CHANNEL_RELEASE, { requestId, provider } satisfies ChannelReleaseRequest);
 	});
 }

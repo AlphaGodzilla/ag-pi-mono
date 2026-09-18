@@ -16,7 +16,17 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
-import { CHANNEL_SEND, sendViaBus, statusViaBus, type ChannelStatusResult, type EventsLike } from "../lib/events.ts";
+import {
+	CHANNEL_CONNECT,
+	CHANNEL_RELEASE,
+	CHANNEL_SEND,
+	connectViaBus,
+	releaseViaBus,
+	sendViaBus,
+	statusViaBus,
+	type ChannelStatusResult,
+	type EventsLike,
+} from "../lib/events.ts";
 
 // sendViaBus / statusViaBus 的超时定时器是 unref 的（避免拖住 pi 进程），所以等待结果期间
 // 事件循环可能直接空掉；测试里用一个 ref 的定时器撑住，否则用例会被判为 pending 而取消。
@@ -85,6 +95,80 @@ test("未配置时：status 回报两个 provider 均未配置，且带上配置
 			{ provider: "telegram", configured: false, connected: false },
 		],
 	);
+});
+
+test("connect 请求：未配置时回 ok:false + not_configured，不触网", async () => {
+	rmSync(CONFIG_PATH, { force: true });
+	const pi = makeFakePi();
+
+	const result = await connectViaBus(pi.events, "feishu", 500);
+
+	assert.ok(result, "应收到 connect:result");
+	assert.equal(result.ok, false);
+	assert.equal(result.connected, false);
+	assert.equal(result.error?.code, "not_configured");
+});
+
+test("connect 请求：inbound:false 的 provider 回 ok:false + outbound_only", async () => {
+	mkdirSync(dirname(CONFIG_PATH), { recursive: true });
+	writeFileSync(
+		CONFIG_PATH,
+		JSON.stringify({
+			feishu: { appId: "cli_test", appSecret: "secret", inbound: false, defaultReceiver: { type: "chat_id", value: "oc_x" } },
+		}),
+		"utf8",
+	);
+	const pi = makeFakePi();
+
+	const result = await connectViaBus(pi.events, "feishu", 500);
+
+	assert.ok(result);
+	assert.equal(result.ok, false);
+	assert.equal(result.connected, false);
+	assert.equal(result.error?.code, "outbound_only");
+	// 共享的 CONFIG_PATH 是跨用例状态：本用例写进了配置，跑完必须还原成「未配置」，
+	// 否则后面的 send 用例会真的去连飞书并等超时。
+	rmSync(CONFIG_PATH, { force: true });
+});
+
+test("connect 请求：插件缺席（无回复）时 connectViaBus 超时返回 null，消费方零依赖降级", async () => {
+	const bus = createEventBus();
+	const silent: EventsLike = {
+		on: (channel, handler) => bus.on(channel, handler),
+		emit: (channel, data) => {
+			if (channel === CHANNEL_CONNECT) return; // 吞掉请求：模拟没有插件在听
+			bus.emit(channel, data);
+		},
+	};
+
+	const result = await connectViaBus(silent, "feishu", 50);
+
+	assert.equal(result, null);
+});
+
+test("release 请求：没有连接可关时也算成功（ok:true, connected:false），不触网", async () => {
+	rmSync(CONFIG_PATH, { force: true });
+	const pi = makeFakePi();
+
+	const result = await releaseViaBus(pi.events, "feishu", 500);
+
+	assert.ok(result, "应收到 release:result");
+	assert.equal(result.ok, true);
+	assert.equal(result.connected, false);
+});
+
+test("release 请求：插件缺席（无回复）时 releaseViaBus 超时返回 null", async () => {
+	const bus = createEventBus();
+	const silent: EventsLike = {
+		on: (channel, handler) => bus.on(channel, handler),
+		emit: (channel, data) => {
+			if (channel === CHANNEL_RELEASE) return;
+			bus.emit(channel, data);
+		},
+	};
+
+	const result = await releaseViaBus(silent, "feishu", 50);
+	assert.equal(result, null);
 });
 
 test("未配置时：send 回 ok:false + not_configured，不抛异常", async () => {
@@ -216,6 +300,18 @@ test("/channel 命令：status 输出状态行，send 提示用户，reload 重�
 	writeFileSync(CONFIG_PATH, JSON.stringify({ feishu: { appId: "cli_x", appSecret: "s", inbound: false } }), "utf8");
 	await command.handler("reload", uiCtx(pi.notices));
 	assert.match(pi.notices.at(-1)?.msg ?? "", /飞书: 出站模式/);
+	// debug 关（配置缺省）：状态行不带诊断后缀
+	assert.doesNotMatch(pi.notices.at(-1)?.msg ?? "", /诊断/);
+
+	// 顶层 `debug: true`（诊断脚手架开关）→ 状态行提示已开启，且 `/channel reload` 即热生效
+	writeFileSync(
+		CONFIG_PATH,
+		JSON.stringify({ debug: true, feishu: { appId: "cli_x", appSecret: "s", inbound: false } }),
+		"utf8",
+	);
+	await command.handler("reload", uiCtx(pi.notices));
+	assert.match(pi.notices.at(-1)?.msg ?? "", /诊断 debug.log 已开启/);
+	rmSync(CONFIG_PATH, { force: true });
 });
 
 test("/channel 命令：stale 命令 ctx（reload 后）不会让 notify 抛错打崩 pi", async () => {

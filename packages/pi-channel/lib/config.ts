@@ -50,6 +50,8 @@ export type TelegramChannelConfig = {
 export type ChannelConfig = {
 	feishu?: FeishuChannelConfig;
 	telegram?: TelegramChannelConfig;
+	/** 诊断开关（顶层 `debug`）：打开后 SDK 日志与时序打到 debug.log，用于排障；缺省关。 */
+	debug: boolean;
 };
 
 const RECEIVER_TYPES: readonly FeishuReceiverType[] = ["open_id", "user_id", "union_id", "email", "chat_id"];
@@ -63,6 +65,7 @@ function isNonEmptyString(v: unknown): v is string {
 function asBool(v: unknown, fallback: boolean): boolean {
 	return typeof v === "boolean" ? v : fallback;
 }
+
 
 function parseReceiver(raw: unknown): FeishuReceiver | undefined {
 	if (!raw || typeof raw !== "object") return undefined;
@@ -104,9 +107,9 @@ function parseTelegram(raw: unknown): TelegramChannelConfig | undefined {
 export function loadChannelConfig(): ChannelConfig {
 	try {
 		const parsed = JSON.parse(readFileSync(resolveConfigPath(), "utf8")) as Record<string, unknown>;
-		return { feishu: parseFeishu(parsed?.feishu), telegram: parseTelegram(parsed?.telegram) };
+		return { feishu: parseFeishu(parsed?.feishu), telegram: parseTelegram(parsed?.telegram), debug: parsed?.debug === true };
 	} catch {
-		return {};
+		return { debug: false };
 	}
 }
 

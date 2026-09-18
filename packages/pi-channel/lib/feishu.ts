@@ -14,20 +14,36 @@
 import { Client, createLarkChannel, Domain, type Logger, type LarkChannel } from "@larksuiteoapi/node-sdk";
 import { maskAccount, type FeishuChannelConfig } from "./config.ts";
 import { readAckText, type ChannelInboundEvent, type FeishuSendRequest } from "./events.ts";
-import { logError } from "./log.ts";
+import { logDebug, logError } from "./log.ts";
 
 /**
  * SDK 默认把自己 `[info]` 级别的日志打到 stdout —— 包括长连接使用说明的整段横幅与
- * `[ws] ws client ready`。在 pi TUI 里这些会直接渲染进输入区（实测截图确认），因此全部静音；
- * 我们只写自己的 error.log。这也与 SDK 的 `loggerLevel` 无关：给一个空实现就完全接管。
+ * `[ws] ws client ready`。在 pi TUI 里这些会直接渲染进输入区（实测截图确认），因此**一律改道**：
+ * 全部走 `logDebug`（默认关闭；只有配置 `debug: true` 时才写 debug.log）—— TUI 永远零输出，
+ * 而排障时（SDK safety 的去重/排队/丢弃、长连接时序）有证据可查。
  */
-const silentLogger: Logger = {
-	error() {},
-	warn() {},
-	info() {},
-	debug() {},
+const sdkLogger: Logger = {
+	error: (...msg) => logDebug(`[sdk:error] ${formatLogArgs(msg)}`),
+	warn: (...msg) => logDebug(`[sdk:warn] ${formatLogArgs(msg)}`),
+	info: (...msg) => logDebug(`[sdk:info] ${formatLogArgs(msg)}`),
+	debug: (...msg) => logDebug(`[sdk:debug] ${formatLogArgs(msg)}`),
 	trace() {},
 };
+
+/** 诊断日志参数序列化：Error 取 message，对象尽力 JSON，其余 String。 */
+function formatLogArgs(args: unknown[]): string {
+	return args
+		.map((a) => {
+			if (a instanceof Error) return a.message;
+			if (typeof a === "string") return a;
+			try {
+				return JSON.stringify(a);
+			} catch {
+				return String(a);
+			}
+		})
+		.join(" ");
+}
 
 /** 出站所需的最小 client 形状（测试注入假实现，避免真 SDK 请求）。 */
 export type FeishuClientLike = {
@@ -121,6 +137,11 @@ function asChatType(v: unknown): "p2p" | "group" | undefined {
 /**
  * 在 WS dispatcher 层注入卡片回调响应（见文件头坑 1）。
  * ack 文案取按钮 value.ackText，缺省「已收到」；非卡片事件原样透传。
+ *
+ * ack 必须**立刻**回，不能等分发链跑完：`origInvoke` 里还要过 SDK 的 safety 流水线
+ * （按 chatId 串行排队 + 去重锁）与消费方处理，任何一段慢都会烧穿飞书 3s 窗口 ——
+ * 客户端超时后会回滚卡片更新，用户看到的就是「点了没反应、要连点几次」。
+ * 分发因此改为后台跑（与 ack 解耦）；分发失败自己吞掉并写 error.log —— 未处理的拒绝会让 pi 直接退出。
  */
 function installCardCallbackResponder(channel: FeishuChannelLike, log: (msg: string) => void): void {
 	const ws = channel.rawWsClient as
@@ -133,17 +154,33 @@ function installCardCallbackResponder(channel: FeishuChannelLike, log: (msg: str
 	}
 	const origInvoke = dispatcher.invoke.bind(dispatcher);
 	dispatcher.invoke = async (data: unknown, opts?: unknown) => {
-		const result = await origInvoke(data, opts);
 		const header = (data as { header?: { event_type?: string } } | null)?.header;
-		if (header?.event_type !== "card.action.trigger") return result;
+		if (header?.event_type !== "card.action.trigger") return origInvoke(data, opts);
+		const startedAt = Date.now();
 		const value = (data as { event?: { action?: { value?: unknown } } } | null)?.event?.action?.value;
-		return { toast: { type: "success", content: readAckText(value) ?? "已收到" } };
+		const ackText = readAckText(value) ?? "已收到";
+		logDebug(`[card] callback received (ack=${ackText})`);
+		// 分发丢到后台：失败必须自己吞掉（未处理的拒绝会让 pi 直接退出），只写 error.log。
+		void Promise.resolve()
+			.then(() => origInvoke(data, opts))
+			.then(
+				() => logDebug(`[card] dispatch finished in ${Date.now() - startedAt}ms`),
+				(err) => {
+					logDebug(
+						`[card] dispatch failed after ${Date.now() - startedAt}ms: ${err instanceof Error ? err.message : String(err)}`
+					);
+					log(`card action dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
+				},
+			);
+		logDebug(`[card] ack returned in ${Date.now() - startedAt}ms`);
+		return { toast: { type: "success", content: ackText } };
 	};
+	logDebug("[card] callback responder installed");
 }
 
 export function createFeishuProvider(deps: FeishuProviderDeps = {}): FeishuProvider {
 	const log = deps.log ?? logError;
-	const makeClient = deps.createClient ?? ((opts) => new Client({ ...opts, logger: silentLogger }) as unknown as FeishuClientLike);
+	const makeClient = deps.createClient ?? ((opts) => new Client({ ...opts, logger: sdkLogger }) as unknown as FeishuClientLike);
 	const makeChannel =
 		deps.createChannel ??
 		((opts) =>
@@ -152,7 +189,7 @@ export function createFeishuProvider(deps: FeishuProviderDeps = {}): FeishuProvi
 				appSecret: opts.appSecret,
 				domain: opts.domain,
 				policy: opts.policy,
-				logger: silentLogger,
+				logger: sdkLogger,
 			}) as unknown as FeishuChannelLike);
 
 	/** 出站 client 按 appId 缓存：同一进程内不同应用各自一份 */
@@ -260,7 +297,10 @@ export function createFeishuProvider(deps: FeishuProviderDeps = {}): FeishuProvi
 			});
 			channelKey = key;
 			subscribe(onInbound);
+			const connectStartedAt = Date.now();
+			logDebug(`[ws] connecting feishu (${maskAccount(cfg.appId)})`);
 			await channel.connect();
+			logDebug(`[ws] ready in ${Date.now() - connectStartedAt}ms`);
 			// ack 注入必须放在 connect() **之后**：SDK 在 connect 时才创建 WS dispatcher，
 			// 之前装拿不到 eventDispatcher.invoke，会打出 "card callback responder not installed"，
 			// 卡片点击的 3s ack（toast）随之失效（ask-user-question 的老实现也是先 connect 再装）。

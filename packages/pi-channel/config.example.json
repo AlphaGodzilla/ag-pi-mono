@@ -1,4 +1,5 @@
 {
+  "debug": false,
   "feishu": {
     "appId": "cli_xxxxxxxxxxxxxxxx",
     "appSecret": "YOUR_APP_SECRET",

@@ -3,8 +3,12 @@
  *
  * 注入假 client / 假 channel（`FeishuProviderDeps`），全程不触网、不加载真 SDK 连接；
  * 覆盖出站三条路径、入站归一化、卡片回调 ack 注入与连接生命周期。
+ * PI_CODING_AGENT_DIR 指向临时目录：致命错误路径调用 logError() 时只写临时 error.log，不碰真实用户目录。
  */
-import { test } from "node:test";
+import { after, test } from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import assert from "node:assert/strict";
 import { Domain } from "@larksuiteoapi/node-sdk";
 import type { FeishuChannelConfig } from "../lib/config.ts";
@@ -16,6 +20,10 @@ import {
 	type FeishuChannelLike,
 	type FeishuClientLike,
 } from "../lib/feishu.ts";
+
+const AGENT_DIR = mkdtempSync(join(tmpdir(), "pi-channel-feishu-test-"));
+process.env.PI_CODING_AGENT_DIR = AGENT_DIR;
+after(() => rmSync(AGENT_DIR, { recursive: true, force: true }));
 
 type Call = { api: string; args: unknown };
 
@@ -321,6 +329,33 @@ test("卡片回调 ack 注入：用 value.ackText 作 toast，缺省「已收到
 
 	const other = await dispatcher.invoke({ header: { event_type: "im.message.receive_v1" } });
 	assert.equal(other, "original-result");
+});
+
+test("卡片回调 ack 立即返回：不被分发链（safety 排队 / 消费方处理）拖住", async () => {
+	const { channel, dispatcher } = makeChannel();
+	let dispatchStarted = false;
+	let dispatchFinished = false;
+	dispatcher.invoke = async () => {
+		dispatchStarted = true;
+		await new Promise((resolve) => setTimeout(resolve, 40));
+		dispatchFinished = true;
+		return "original-result";
+	};
+	const { provider } = providerWith(undefined, channel);
+	await provider.connect(makeCfg({ inbound: true }), () => {});
+
+	const ack = await dispatcher.invoke({
+		header: { event_type: "card.action.trigger" },
+		event: { action: { value: { ackText: "已选择" } } },
+	});
+
+	// ack 先于慢的分发链返回：飞书 3s 窗口不再被分发链耗时烧穿（烧穿会让客户端回滚卡片更新）。
+	assert.deepEqual(ack, { toast: { type: "success", content: "已选择" } });
+	assert.equal(dispatchFinished, false);
+	// 分发链随后在后台照常跑完。
+	await new Promise((resolve) => setTimeout(resolve, 80));
+	assert.equal(dispatchStarted, true);
+	assert.equal(dispatchFinished, true);
 });
 
 test("close：等待 400ms 冲刷 ack 后 disconnect，状态归零", async () => {

@@ -7,6 +7,8 @@
  * - 出站：订阅 `ag-pi-channel:send`，按 provider 分发；结果回 `ag-pi-channel:send:result`
  * - 入站：长连接/长轮询收到消息与按钮点击后发 `ag-pi-channel:inbound`
  * - 状态：订阅 `ag-pi-channel:status`，回 `ag-pi-channel:status:result`
+ * - 就绪：订阅 `ag-pi-channel:connect`，把该 provider 的入站通道建好再回 `ag-pi-channel:connect:result`
+ * - 释放：订阅 `ag-pi-channel:release`，清掉入站持有；无人持有时断开该 provider 的入站连接
  * - 命令：`/channel`（status / reload / send <text>）
  *
  * 配置与运行数据都在 `~/.pi/agent/extensions/pi-channel/`（config.json / error.log），
@@ -23,11 +25,19 @@ import {
 	type ChannelConfig,
 } from "./lib/config.ts";
 import {
+	CHANNEL_CONNECT,
+	CHANNEL_CONNECT_RESULT,
+	CHANNEL_RELEASE,
+	CHANNEL_RELEASE_RESULT,
 	CHANNEL_INBOUND,
 	CHANNEL_SEND,
 	CHANNEL_SEND_RESULT,
 	CHANNEL_STATUS,
 	CHANNEL_STATUS_RESULT,
+	type ChannelConnectRequest,
+	type ChannelConnectResult,
+	type ChannelReleaseRequest,
+	type ChannelReleaseResult,
 	type ChannelInboundEvent,
 	type ChannelProvider,
 	type ChannelProviderStatus,
@@ -36,7 +46,7 @@ import {
 } from "./lib/events.ts";
 import { createFeishuProvider, classifyFeishuError, type FeishuProvider } from "./lib/feishu.ts";
 import { createTelegramProvider, classifyTelegramError, type TelegramProvider } from "./lib/telegram.ts";
-import { logError } from "./lib/log.ts";
+import { logError, setDebugEnabled } from "./lib/log.ts";
 
 /** 命令与状态提示里用的短标签 */
 const PROVIDER_LABELS: Record<ChannelProvider, string> = { feishu: "飞书", telegram: "Telegram" };
@@ -45,6 +55,8 @@ type UiCtx = { hasUI?: boolean; ui: { notify(msg: string, level: "info" | "warni
 
 export default function piChannel(pi: ExtensionAPI): void {
 	let cfg: ChannelConfig = loadChannelConfig();
+	// 诊断开关（顶层 `debug`）：开则写 debug.log（SDK 日志 + 时序），默认关、TUI 零输出。
+	setDebugEnabled(cfg.debug);
 	/** reload/quit 之后本实例作废：其捕获的 `pi` 变成 stale，任何 emit 都会抛错并让 pi 退出 */
 	let retired = false;
 	const feishu: FeishuProvider = createFeishuProvider();
@@ -92,10 +104,9 @@ export default function piChannel(pi: ExtensionAPI): void {
 					});
 				}
 				const { messageId } = await feishu.send(req, cfg.feishu);
-				// 惰性唤醒：发送成功后才连该 provider 的入站通道。若在发送前 kick，长连接的 token 获取
-				// 会与本次 REST 调用相撞（实测首次发送 ~0.8s → ~8s）；放在之后既不影响出站时延，
-				// 也来得及在对方回复前把长连接建好。
-				ensureInbound("feishu");
+				// 刻意**不**在这里唤醒入站：自动 kick 会让任何用过飞书的进程常驻一条长连接，而飞书对同一 app 的多连接
+				// 是选一条投递——多进程下回调会被投到没有待答问卷的实例上（见 inboundHolds 的注释）。
+				// 需要入站（收回复 / 按钮点击）的消费方用 `ag-pi-channel:connect` 显式要，用完 `release`。
 				lastErrors.delete("feishu");
 				return respond({ requestId: req.requestId, ok: true, messageId });
 			}
@@ -108,7 +119,7 @@ export default function piChannel(pi: ExtensionAPI): void {
 					});
 				}
 				const { messageId } = await telegram.send(req, cfg.telegram);
-				ensureInbound("telegram");
+				// 同上：不在发送后自动 kick 入站。
 				lastErrors.delete("telegram");
 				return respond({ requestId: req.requestId, ok: true, messageId });
 			}
@@ -161,19 +172,93 @@ export default function piChannel(pi: ExtensionAPI): void {
 	}
 
 	/**
-	 * 惰性连接：只有真正要用的时候（消费方首次发请求）才连对应 provider 的入站通道。
-	 * 启动 / `session_start` 刻意不连——空转的 Telegram 长轮询与飞书长连接会白占网络与配额。
-	 * `inbound: false` = 永不需要入站，直接跳过；provider 的 `connect()` 自身幂等（重复调用不会重复建连）。
+	 * 入站**持有**状态：只有消费方显式 `connect` 过（且还没 `release`）的 provider 才允许持有入站连接。
+	 * 为什么这么严：飞书对同一个 app 的多条长连接是**选一条投递**，而插件是全局扩展——每个 pi 进程都会加载。
+	 * 若「发送成功就自动 kick 入站」（拆分初期的做法），任何用过飞书的进程都会常驻一条长连接，于是回调会被投递到
+	 * 没有待答问卷的进程上：那边照样回 ack（toast），点击却被静默吞掉（实测：4 个 pi 进程时第 2 题要点 4 次以上）。
+	 * 现在只有「正在等回复」的进程持有连接，`release` 后立刻回到不连接状态（≈ 拆分前 connect→用完 close 的语义）。
 	 */
-	function ensureInbound(provider: ChannelProvider): void {
-		if (retired) return; // 作废实例不再建连（迟到的发送结果可能在此之后才回来）
+	const inboundHolds = new Map<ChannelProvider, number>();
+
+	/**
+	 * 消费方在需要收回复/点击前请求入站就绪（长连接建好再回 `ok`），把「消息已送达、长连接还没握完手」的窗口消掉。
+	 * 成功即记一次持有（计数），失败以带 code 的错误拒绝：`not_configured` / `outbound_only` / `retired`。
+	 */
+	async function ensureInboundReady(provider: ChannelProvider): Promise<void> {
+		if (retired) throw connectError("retired", "pi-channel instance retired (extension reloaded)");
 		if (provider === "feishu") {
-			if (!isFeishuConfigured(cfg) || cfg.feishu.inbound === false) return;
-			void feishu.connect(cfg.feishu, emitInbound).catch((err) => noteError("feishu", err));
-			return;
+			if (!isFeishuConfigured(cfg)) throw connectError("not_configured", "feishu not configured");
+			if (cfg.feishu.inbound === false) throw connectError("outbound_only", "feishu inbound disabled (inbound: false)");
+			await feishu.connect(cfg.feishu, emitInbound);
+		} else {
+			if (!isTelegramConfigured(cfg)) throw connectError("not_configured", "telegram not configured");
+			if (cfg.telegram.inbound === false) throw connectError("outbound_only", "telegram inbound disabled (inbound: false)");
+			await telegram.connect(cfg.telegram, emitInbound);
 		}
-		if (!isTelegramConfigured(cfg) || cfg.telegram.inbound === false) return;
-		void telegram.connect(cfg.telegram, emitInbound).catch((err) => noteError("telegram", err));
+		inboundHolds.set(provider, (inboundHolds.get(provider) ?? 0) + 1);
+	}
+
+	/**
+	 * 消费方用完入站：释放一次持有；计数归零才真正关闭该 provider 的入站连接（幂等，没连接时直接返回）。
+	 * 关闭走 provider 自己的 `close()`（飞书会先等 400ms 冲刷末条 ack 再断连）。
+	 */
+	async function releaseInbound(provider: ChannelProvider): Promise<void> {
+		const remaining = Math.max(0, (inboundHolds.get(provider) ?? 0) - 1);
+		if (remaining === 0) inboundHolds.delete(provider);
+		else inboundHolds.set(provider, remaining);
+		if (remaining > 0) return;
+		await (provider === "feishu" ? feishu.close() : telegram.close());
+	}
+
+	/** 带 `code` 的错误：消费方与 `classify*Error` 都靠这个字段分类，不靠 message 文本。 */
+	function connectError(code: string, message: string): Error {
+		return Object.assign(new Error(message), { code });
+	}
+
+	/** 入站就绪请求：任何失败都收敛成 `ok:false` + code，绝不外抛。 */
+	async function dispatchConnect(req: ChannelConnectRequest): Promise<void> {
+		try {
+			await ensureInboundReady(req.provider);
+			safeEmit(CHANNEL_CONNECT_RESULT, {
+				requestId: req.requestId,
+				ok: true,
+				connected: true,
+			} satisfies ChannelConnectResult);
+		} catch (err) {
+			const { code, message } =
+				req.provider === "feishu" ? classifyFeishuError(err) : classifyTelegramError(err);
+			safeEmit(CHANNEL_CONNECT_RESULT, {
+				requestId: req.requestId,
+				ok: false,
+				connected: false,
+				error: { code, message },
+			} satisfies ChannelConnectResult);
+		}
+	}
+
+	/**
+	 * 入站释放请求：`ok:true` 表示释放已受理，`connected` 是释放后该 provider 的实际连接状态
+	 * （还有别的持有者时为 true）。任何异常同样只回 `ok:false`，绝不外抛。
+	 */
+	async function dispatchRelease(req: ChannelReleaseRequest): Promise<void> {
+		const connectedNow = () => (req.provider === "feishu" ? feishu.status().connected : telegram.status().connected);
+		try {
+			await releaseInbound(req.provider);
+			safeEmit(CHANNEL_RELEASE_RESULT, {
+				requestId: req.requestId,
+				ok: true,
+				connected: connectedNow(),
+			} satisfies ChannelReleaseResult);
+		} catch (err) {
+			const { code, message } =
+				req.provider === "feishu" ? classifyFeishuError(err) : classifyTelegramError(err);
+			safeEmit(CHANNEL_RELEASE_RESULT, {
+				requestId: req.requestId,
+				ok: false,
+				connected: connectedNow(),
+				error: { code, message },
+			} satisfies ChannelReleaseResult);
+		}
 	}
 
 	async function closeAll(): Promise<void> {
@@ -209,7 +294,8 @@ export default function piChannel(pi: ExtensionAPI): void {
 			const account = s.accountMasked ? ` ${s.accountMasked}` : "";
 			return `${label}: ${state}${account}`;
 		});
-		return `pi-channel | ${parts.join(" | ")} | 配置 ${resolveConfigPath()}`;
+		const debug = cfg.debug ? " | 诊断 debug.log 已开启" : "";
+		return `pi-channel | ${parts.join(" | ")} | 配置 ${resolveConfigPath()}${debug}`;
 	}
 
 	// ---- 事件契约 ----
@@ -226,9 +312,28 @@ export default function piChannel(pi: ExtensionAPI): void {
 		safeEmit(CHANNEL_STATUS_RESULT, { requestId, configPath: resolveConfigPath(), providers: providerStatuses() });
 	});
 
+	pi.events.on(CHANNEL_CONNECT, (data) => {
+		const req = data as Partial<ChannelConnectRequest> | undefined;
+		if (typeof req?.requestId !== "string") return;
+		if (req.provider !== "feishu" && req.provider !== "telegram") return;
+		// fire-and-forget：dispatchConnect 内部已把失败收敛成 result，不外抛
+		void dispatchConnect(req as ChannelConnectRequest).catch((err) =>
+			logError(`dispatchConnect failed: ${err instanceof Error ? err.message : String(err)}`),
+		);
+	});
+
+	pi.events.on(CHANNEL_RELEASE, (data) => {
+		const req = data as Partial<ChannelReleaseRequest> | undefined;
+		if (typeof req?.requestId !== "string") return;
+		if (req.provider !== "feishu" && req.provider !== "telegram") return;
+		void dispatchRelease(req as ChannelReleaseRequest).catch((err) =>
+			logError(`dispatchRelease failed: ${err instanceof Error ? err.message : String(err)}`),
+		);
+	});
+
 	// ---- 连接生命周期 ----
-	// 刻意**不注册** `session_start` 连接钩子：连 provider 的时间点由 `ensureInbound()` 决定
-	// （首次发送请求时），避免启动即向飞书/Telegram 建连。
+	// 刻意**不注册** `session_start` 连接钩子：连 provider 的时间点由消费方的 `ag-pi-channel:connect` 请求决定，
+	// 避免启动即向飞书/Telegram 建连（`/channel reload` 命令是显式重连路径）。
 	// 注：pi 的 /reload 会逐个 await session_start handler，所以真要做连接也该是 fire-and-forget。
 
 	pi.on("session_shutdown", async (event) => {
@@ -254,6 +359,7 @@ export default function piChannel(pi: ExtensionAPI): void {
 			const [sub, ...rest] = (args ?? "").trim().split(/\s+/);
 			if (sub === "reload") {
 				cfg = loadChannelConfig();
+				setDebugEnabled(cfg.debug); // 诊断开关热生效：改完配置 `/channel reload` 即可
 				await closeAll();
 				await connectAll();
 				report(ctx as UiCtx, statusLine());
@@ -280,6 +386,9 @@ export default function piChannel(pi: ExtensionAPI): void {
 					report(ctx as UiCtx, `发送失败：${result.error?.code} ${result.error?.message}`, "warning");
 					return;
 				}
+				// 手动测试命令：发送成功后显式唤醒入站，方便接着测「回复 / 点击」链路。
+				// （程序化发送不再自动唤醒 —— 见 dispatchSend 的注释。）
+				void ensureInboundReady(provider).catch((err) => noteError(provider, err));
 				report(ctx as UiCtx, `已发送（${PROVIDER_LABELS[provider]}，messageId=${result.messageId ?? "-"}）`);
 				return;
 			}
