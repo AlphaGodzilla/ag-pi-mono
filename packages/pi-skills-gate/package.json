@@ -1,0 +1,41 @@
+{
+  "name": "@alphagodzilla/pi-skills-gate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "pi 扩展：覆盖内置 skills 段，每个 skill 只保留 name/location，去掉常驻系统提示词的 description 全文",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "skills",
+    "system-prompt"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "test": "node --test test/*.test.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlphaGodzilla/ag-pi-mono.git",
+    "directory": "packages/pi-skills-gate"
+  },
+  "homepage": "https://github.com/AlphaGodzilla/ag-pi-mono/tree/main/packages/pi-skills-gate#readme",
+  "bugs": {
+    "url": "https://github.com/AlphaGodzilla/ag-pi-mono/issues"
+  }
+}

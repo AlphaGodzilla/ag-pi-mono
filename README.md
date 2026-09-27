@@ -9,10 +9,11 @@ pi 扩展单仓（monorepo）。原先分散在 `~/.pi/agent/` 下的 7 个本�
 | `@alphagodzilla/pi-channel` | `packages/pi-channel` | `index.ts` | 外部通信 channel 插件：独占飞书/Telegram 凭据与连接，通过 `ag-pi-channel:*` 事件契约对外提供出站/入站传输能力 |
 | `@alphagodzilla/pi-cmux` | `packages/pi-cmux` | `index.ts` | cmux 集成（工作区/面板状态），以及权限 ask、`ask_user_question` 问卷弹窗的 cmux 通知 |
 | `@alphagodzilla/pi-context-watchdog` | `packages/pi-context-watchdog` | `index.ts` | 上下文余量看门狗：接近上限时注入收尾提示，阈值自动压缩后自动继续 |
-| `@alphagodzilla/pi-docs-gate` | `packages/pi-docs-gate` | `extensions/` + `skills/` | 把系统提示词里硬编码的 Pi documentation 段落按需化，并动态渲染 pi-docs skill 路径 |
+| `@alphagodzilla/pi-docs-gate` | `packages/pi-docs-gate` | `extensions/` + `skills/` | 把内置 Pi documentation 段落按需化（段 + 线上提示词文本两条路径），`~/.pi/agent` 下引导读 pi-docs skill |
 | `@alphagodzilla/pi-gen-commit-msg-zh` | `packages/pi-gen-commit-msg-zh` | `index.ts` + `skills/` | `/gen-commit-msg-zh` 交互式中文提交信息，附直接提交的规范型 skill |
 | `@alphagodzilla/pi-llm-provider-balance` | `packages/pi-llm-provider-balance` | `index.ts` | 状态栏按当前 provider 显示账户余额（derouter / DeepSeek） |
 | `@alphagodzilla/pi-remote-notify` | `packages/pi-remote-notify` | `index.ts` | 任务结束后飞书提醒（含工作总结），`/remote-notify` 开关 |
+| `@alphagodzilla/pi-skills-gate` | `packages/pi-skills-gate` | `index.ts` | 去掉 skills 段常驻的 `<description>` 全文（段 + 线上提示词文本两条路径），只留 `<name>` + `<location>` |
 | `@alphagodzilla/pi-tps` | `packages/pi-tps` | `index.ts` | TUI 实时显示生成速度（MIN/MAX/AVG/CUR）与首字延迟 |
 
 ## 开发
@@ -26,7 +27,7 @@ pnpm --filter @alphagodzilla/pi-tps test   # 单包
 ```
 
 - Node `>=22.18`：测试直接用 `node --test` 跑 `.ts`（依赖内置 type stripping），无需构建。
-- 依赖分层：`typescript`、`@types/node`、`@earendil-works/pi-ai|pi-coding-agent|pi-tui`（0.85.1）、`jiti` 放在根 `devDependencies`；各包只声明 `peerDependencies`（`@earendil-works/pi-coding-agent`，`optional`）与自身运行时依赖。
+- 依赖分层：`typescript`、`@types/node`、`@earendil-works/pi-ai|pi-coding-agent|pi-tui`（0.87.1，与运行时安装的 pi 同版本；各包 `peerDependencies` 的 `*` 会被解析到它）、`jiti` 放在根 `devDependencies`；各包只声明 `peerDependencies`（`@earendil-works/pi-coding-agent`，`optional`）与自身运行时依赖。
 - 若 pnpm 提示 `Ignored build scripts`（esbuild / protobufjs / @google/genai），可忽略：它们只是 pi 包的类型/测试依赖，运行用的是 pi 自带预构建产物；确实需要时执行 `pnpm approve-builds`。
 - tsconfig 只有**根一份** `tsconfig.json`（`include: packages/**/*.ts`）：各包不再有 `tsconfig.json`，也没有 `typecheck` 脚本；新增包只要放在 `packages/*` 下就会被自动纳入类型检查。
 
@@ -41,6 +42,7 @@ pi 通过 `~/.pi/agent/settings.json` 的 `packages` 数组按路径加载本地
 "ag-pi-mono/packages/pi-docs-gate",
 "ag-pi-mono/packages/pi-gen-commit-msg-zh",
 "ag-pi-mono/packages/pi-remote-notify",
+"ag-pi-mono/packages/pi-skills-gate",
 "ag-pi-mono/packages/pi-tps"
 ```
 
