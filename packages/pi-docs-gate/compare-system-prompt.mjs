@@ -3,6 +3,7 @@
  *
  * 用法: node compare-system-prompt.mjs
  * 输出: 本包目录下 *.md(开启前/开启后×两种 cwd)+ 终端 diff
+ * 注: 只模拟 pi-docs-gate 的 docs 段覆盖, 不模拟 pi-skills-gate 的 skills 段覆盖
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, dirname, sep } from "node:path";
@@ -36,7 +37,9 @@ if (!piPkgDir) {
 }
 const { buildSystemPrompt } = await import(join(piPkgDir, "dist", "core", "system-prompt.js"));
 
-const AGENT_DIR = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+// 与扩展保持一致: 配置目录交给 pi 自己解析(getAgentDir), 支持任意 PI_CODING_AGENT_DIR 与 `~`
+const { getAgentDir } = await import(join(piPkgDir, "dist", "config.js"));
+const AGENT_DIR = getAgentDir();
 const PI_DOCS_CWD = AGENT_DIR;
 
 const PKG_DIR = import.meta.dirname; // 本包目录(脚本与包资源同根, 输出与 skills 都相对它解析)
@@ -101,21 +104,20 @@ const toolSnippets = {
 	write_plan: "将当前 markdown 计划写入本次 plan 会话的计划文件。每当计划内容有新增或修改时都应调用本工具。",
 };
 
-// ---------- 4. pi-docs-gate 扩展逻辑(与 extensions/pi-docs-gate/index.ts 保持一致) ----------
-const PI_DOCS_SECTION_RE = /\n\nPi documentation \(read only[\s\S]*?TUI API details\)/;
+// ---------- 4. pi-docs-gate 扩展逻辑(与 extensions/index.ts 保持一致: 按 <docs> 段结构整体替换) ----------
+const DOCS_SECTION_TAG = "docs";
+const DOCS_SECTION_RE = /<docs>([\s\S]*?)<\/docs>/;
 
-function applyGate(prompt, cwd) {
-	let next = prompt.replace(PI_DOCS_SECTION_RE, "");
-	if (cwd === PI_DOCS_CWD || cwd?.startsWith(PI_DOCS_CWD + "/")) {
-		next += [
-			"",
-			"当前工作目录为 ~/.pi/agent(pi 配置目录)。",
-			"如需 pi 自身文档(README / docs/ / examples/, 以及 extensions.md、skills.md、",
-			"prompt-templates.md、tui.md、keybindings.md、sdk.md 等),",
-			"请读取 pi-docs skill 获取完整访问指引。",
-		].join("\n");
-	}
-	return next;
+const PI_DOCS_HINT = [
+	"如需 pi 自身文档(README / docs / examples, 以及 extensions.md、skills.md、",
+	"prompt-templates.md、tui.md、keybindings.md、sdk.md 等), 请读取 pi-docs skill 获取完整访问指引。",
+].join("\n");
+
+/** 任意目录都把内置 docs 段换成按需指针(与扩展一致, 不按 cwd 分支) */
+function applyDocsGate(prompt) {
+	const match = DOCS_SECTION_RE.exec(prompt);
+	if (!match) return prompt;
+	return `${prompt.slice(0, match.index)}<${DOCS_SECTION_TAG}>\n${PI_DOCS_HINT}\n</${DOCS_SECTION_TAG}>${prompt.slice(match.index + match[0].length)}`;
 }
 
 // ---------- 5. 构建 ----------
@@ -146,9 +148,9 @@ const cwdPiAgent = AGENT_DIR;
 const cwdOther = join(homedir(), "Desktop", "some-project"); // 普通编码目录示例(目录不存在也能对比, 只是无项目上下文; 可改为本机任意项目)
 
 const beforePiAgent = buildPrompt(cwdPiAgent);
-const afterPiAgent = applyGate(beforePiAgent, cwdPiAgent);
+const afterPiAgent = applyDocsGate(beforePiAgent);
 const beforeOther = buildPrompt(cwdOther);
-const afterOther = applyGate(beforeOther, cwdOther);
+const afterOther = applyDocsGate(beforeOther);
 
 // ---------- 6. 输出 ----------
 const outDir = PKG_DIR;
