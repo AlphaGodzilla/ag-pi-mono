@@ -1,0 +1,42 @@
+{
+  "name": "@alphagodzilla/pi-lazy-skill",
+  "version": "0.1.0",
+  "private": true,
+  "description": "pi 扩展：删除系统提示词里的 skills 段，改为注册 load_skill 工具，按 skill 名字返回 skill 文件路径并引导用 read 工具读取",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "skills",
+    "system-prompt",
+    "tool"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "test": "node --test test/*.test.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlphaGodzilla/ag-pi-mono.git",
+    "directory": "packages/pi-lazy-skill"
+  },
+  "homepage": "https://github.com/AlphaGodzilla/ag-pi-mono/tree/main/packages/pi-lazy-skill#readme",
+  "bugs": {
+    "url": "https://github.com/AlphaGodzilla/ag-pi-mono/issues"
+  }
+}

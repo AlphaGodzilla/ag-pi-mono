@@ -11,6 +11,7 @@ pi 扩展单仓（monorepo）。原先分散在 `~/.pi/agent/` 下的 7 个本�
 | `@alphagodzilla/pi-context-watchdog` | `packages/pi-context-watchdog` | `index.ts` | 上下文余量看门狗：接近上限时注入收尾提示，阈值自动压缩后自动继续 |
 | `@alphagodzilla/pi-docs-gate` | `packages/pi-docs-gate` | `extensions/` + `skills/` | 把内置 Pi documentation 段落按需化（段 + 线上提示词文本两条路径），`~/.pi/agent` 下引导读 pi-docs skill |
 | `@alphagodzilla/pi-gen-commit-msg-zh` | `packages/pi-gen-commit-msg-zh` | `index.ts` + `skills/` | `/gen-commit-msg-zh` 交互式中文提交信息，附直接提交的规范型 skill |
+| `@alphagodzilla/pi-lazy-skill` | `packages/pi-lazy-skill` | `index.ts` | 删掉整个 skills 段（段 + 线上提示词文本两条路径），改为注册 `load_skill` 工具按名字返回 skill 文件路径并引导用 read 读取 |
 | `@alphagodzilla/pi-llm-provider-balance` | `packages/pi-llm-provider-balance` | `index.ts` | 状态栏按当前 provider 显示账户余额（derouter / DeepSeek） |
 | `@alphagodzilla/pi-remote-notify` | `packages/pi-remote-notify` | `index.ts` | 任务结束后飞书提醒（含工作总结），`/remote-notify` 开关 |
 | `@alphagodzilla/pi-skills-gate` | `packages/pi-skills-gate` | `index.ts` | 去掉 skills 段常驻的 `<description>` 全文（段 + 线上提示词文本两条路径），只留 `<name>` + `<location>` |
@@ -41,6 +42,7 @@ pi 通过 `~/.pi/agent/settings.json` 的 `packages` 数组按路径加载本地
 "ag-pi-mono/packages/pi-llm-provider-balance",
 "ag-pi-mono/packages/pi-docs-gate",
 "ag-pi-mono/packages/pi-gen-commit-msg-zh",
+"ag-pi-mono/packages/pi-lazy-skill",
 "ag-pi-mono/packages/pi-remote-notify",
 "ag-pi-mono/packages/pi-skills-gate",
 "ag-pi-mono/packages/pi-tps"

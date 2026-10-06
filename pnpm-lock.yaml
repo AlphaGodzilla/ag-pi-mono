@@ -60,6 +60,12 @@ importers:
         specifier: '*'
         version: 0.87.1(ws@8.21.3)
 
+  packages/pi-lazy-skill:
+    dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: '*'
+        version: 0.87.1(ws@8.21.3)
+
   packages/pi-llm-provider-balance:
     dependencies:
       '@earendil-works/pi-coding-agent':

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "pi 扩展单仓（pnpm workspace）：pi-cmux / pi-context-watchdog / pi-docs-gate / pi-gen-commit-msg-zh / pi-llm-provider-balance / pi-remote-notify / pi-skills-gate / pi-tps",
+  "description": "pi 扩展单仓（pnpm workspace）：pi-cmux / pi-context-watchdog / pi-docs-gate / pi-gen-commit-msg-zh / pi-lazy-skill / pi-llm-provider-balance / pi-remote-notify / pi-skills-gate / pi-tps",
   "packageManager": "pnpm@10.32.1",
   "engines": {
     "node": ">=22.18.0"
