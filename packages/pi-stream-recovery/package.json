@@ -1,0 +1,29 @@
+{
+  "name": "@alphagodzilla/pi-stream-recovery",
+  "version": "0.1.0",
+  "private": true,
+  "description": "pi 扩展：将指定的响应完成前断流错误接入原生有界重试，不自动发送继续消息",
+  "keywords": ["pi-package", "pi-extension", "pi", "stream", "retry"],
+  "license": "MIT",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "test": "node --test test/*.test.ts"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": { "optional": true },
+    "@earendil-works/pi-coding-agent": { "optional": true }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlphaGodzilla/ag-pi-mono.git",
+    "directory": "packages/pi-stream-recovery"
+  }
+}

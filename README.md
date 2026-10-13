@@ -15,6 +15,7 @@ pi 扩展单仓（monorepo）。原先分散在 `~/.pi/agent/` 下的 7 个本�
 | `@alphagodzilla/pi-llm-provider-balance` | `packages/pi-llm-provider-balance` | `index.ts` | 状态栏按当前 provider 显示账户余额（derouter / DeepSeek） |
 | `@alphagodzilla/pi-remote-notify` | `packages/pi-remote-notify` | `index.ts` | 任务结束后飞书提醒（含工作总结），`/remote-notify` 开关 |
 | `@alphagodzilla/pi-skills-gate` | `packages/pi-skills-gate` | `index.ts` | 去掉 skills 段常驻的 `<description>` 全文（段 + 线上提示词文本两条路径），只留 `<name>` + `<location>` |
+| `@alphagodzilla/pi-stream-recovery` | `packages/pi-stream-recovery` | `index.ts` | 指定响应完成前断流错误归一化，复用原生有界重试，不注入“继续”消息 |
 | `@alphagodzilla/pi-tps` | `packages/pi-tps` | `index.ts` | TUI 实时显示生成速度（MIN/MAX/AVG/CUR）与首字延迟 |
 
 ## 开发

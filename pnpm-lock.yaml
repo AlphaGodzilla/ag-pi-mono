@@ -84,6 +84,15 @@ importers:
         specifier: '*'
         version: 0.87.1(ws@8.21.3)
 
+  packages/pi-stream-recovery:
+    dependencies:
+      '@earendil-works/pi-ai':
+        specifier: '*'
+        version: 0.87.1(ws@8.21.3)
+      '@earendil-works/pi-coding-agent':
+        specifier: '*'
+        version: 0.87.1(ws@8.21.3)
+
   packages/pi-tps:
     dependencies:
       '@earendil-works/pi-coding-agent':
