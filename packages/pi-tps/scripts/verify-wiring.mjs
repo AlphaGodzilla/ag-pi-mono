@@ -270,6 +270,53 @@ try {
   assert.deepEqual(plainLines(80), [beforeUser]);
   console.log("✓ 非 assistant 消息：状态不变");
 
+  // ---- 11b. Anthropic（anthropic-messages）：流式中 usage.output 不是实时计数，thinking 与正文阶段都须显示估算 CUR ----
+  const anthropicMsg = (content, output = 1) =>
+    assistant({ api: "anthropic-messages", content, usage: { ...assistant().usage, output } });
+  clock += 1000;
+  await emit("message_start", { type: "message_start", message: anthropicMsg([]) });
+  clock += 50;
+  await emit("message_update", {
+    type: "message_update",
+    message: anthropicMsg([{ type: "thinking", thinking: "" }]),
+    assistantMessageEvent: { type: "thinking_start", contentIndex: 0 },
+  });
+  clock += 1000; // thinking 400 字符 ≈ 100 tokens，窗口 1000ms → 100.0 t/s
+  await emit("message_update", {
+    type: "message_update",
+    message: anthropicMsg([{ type: "thinking", thinking: "x".repeat(400) }]),
+    assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "x".repeat(400) },
+  });
+  assert.match(plainLines(200)[0], /CUR 100\.0 t\/s$/, "thinking 阶段必须显示估算 CUR，不得为 --");
+  assert.ok(rawLines(200)[0].includes("\u001b[35m"), "流式中 CUR 应为 accent 色");
+  console.log(`✓ Anthropic thinking 阶段：${JSON.stringify(plainLines(200)[0])}`);
+
+  clock += 1000; // 正文 800 字符 ≈ 200 tokens；累计 300 tokens / 窗口 2000ms → 150.0 t/s
+  await emit("message_update", {
+    type: "message_update",
+    message: anthropicMsg([
+      { type: "thinking", thinking: "x".repeat(400) },
+      { type: "text", text: "y".repeat(800) },
+    ]),
+    assistantMessageEvent: { type: "text_delta", contentIndex: 1, delta: "y".repeat(800) },
+  });
+  assert.match(plainLines(200)[0], /CUR 150\.0 t\/s$/, "正文阶段必须继续显示估算 CUR");
+  console.log(`✓ Anthropic 正文阶段：${JSON.stringify(plainLines(200)[0])}`);
+
+  clock += 1000; // 结束：usage.output 精确值 300 tokens / 窗口 3000ms → 100.0 t/s
+  await emit("message_end", {
+    type: "message_end",
+    message: anthropicMsg(
+      [
+        { type: "thinking", thinking: "x".repeat(400) },
+        { type: "text", text: "y".repeat(800) },
+      ],
+      300,
+    ),
+  });
+  assert.match(plainLines(200)[0], /CUR 100\.0 t\/s$/, "结束后应以 usage.output 精确值校正");
+  console.log(`✓ Anthropic 结束校正：${JSON.stringify(plainLines(200)[0])}`);
+
   // ---- 12. session_shutdown 清理 ----
   await emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
   assert.equal(clearCalls, 1, "session_shutdown 应清除 widget");

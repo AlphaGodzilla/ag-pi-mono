@@ -21,6 +21,7 @@ import {
   formatTpsParts,
   formatValue,
   isCjk,
+  liveOutputTokens,
   MIN_SAMPLE_TOKENS,
   MIN_SAMPLE_WINDOW_MS,
   recordLatency,
@@ -336,4 +337,40 @@ test("formatStatusText: liveTtftMs 透传到 TTFT 段", () => {
     formatStatusText(stats, latency, { liveTtftMs: 2500 }),
     "TTFT 2.50s avg 0.80s · MIN 10.0 MAX 50.0 AVG 30.0 CUR 30.0 t/s",
   );
+});
+
+test("liveOutputTokens: anthropic-messages 流式中忽略 usage.output，按内容估算", () => {
+  // 流式中 usage.output 不随内容增长，即使 > 0 也不得作为实时计数
+  const blocks = [{ type: "thinking", thinking: "x".repeat(400) }];
+  assert.equal(liveOutputTokens("anthropic-messages", 1, blocks), 100);
+  assert.equal(liveOutputTokens("anthropic-messages", 0, blocks), 100);
+});
+
+test("liveOutputTokens: anthropic-messages 的 thinking 与正文都参与估算", () => {
+  const blocks = [
+    { type: "thinking", thinking: "x".repeat(400) },
+    { type: "text", text: "y".repeat(800) },
+  ];
+  assert.equal(liveOutputTokens("anthropic-messages", 1, blocks), 300);
+});
+
+test("liveOutputTokens: openai-completions 有精确 usage.output 时采信", () => {
+  const blocks = [{ type: "text", text: "y".repeat(40) }];
+  assert.equal(liveOutputTokens("openai-completions", 500, blocks), 500);
+});
+
+test("liveOutputTokens: openai-completions 无 usage（0）时回退内容估算", () => {
+  const blocks = [{ type: "text", text: "y".repeat(40) }];
+  assert.equal(liveOutputTokens("openai-completions", 0, blocks), 10);
+});
+
+test("liveOutputTokens: 缺失或未知协议按 OpenAI 口径处理（保持既有行为）", () => {
+  const blocks = [{ type: "text", text: "y".repeat(40) }];
+  assert.equal(liveOutputTokens(undefined, 500, blocks), 500);
+  assert.equal(liveOutputTokens("some-future-api", 0, blocks), 10);
+});
+
+test("liveOutputTokens: 无内容且 usage 为 0 时返回 0", () => {
+  assert.equal(liveOutputTokens("anthropic-messages", 0, undefined), 0);
+  assert.equal(liveOutputTokens("openai-completions", 0, []), 0);
 });

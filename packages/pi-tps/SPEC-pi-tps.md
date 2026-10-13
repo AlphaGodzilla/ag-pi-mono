@@ -1,6 +1,6 @@
 # Spec: pi-tps —— pi TUI 实时显示 LLM 生成速度（TPS）
 
-模块 id: `pi-tps` ｜ 状态: v1.8 已实施（待 TUI 目视验收） ｜ 版本: v1.8 ｜ 日期: 2026-09-09
+模块 id: `pi-tps` ｜ 状态: v1.9 已实施（待 TUI 目视验收） ｜ 版本: v1.9 ｜ 日期: 2026-10-13
 
 ## Objective
 
@@ -65,7 +65,7 @@
 | assistant 消息 `timestamp` 在 HTTP 请求**发出前**写入（可作 TTFT 起点） | `pi-ai/dist/api/openai-completions.js:186`（请求在 213 行） |
 | `message_start`(assistant) 在 HTTP 响应头到达时触发，**不是**首 token | `pi-ai/dist/api/openai-completions.js`（`stream.push({type:"start"})`） |
 | DeepSeek/OpenAI 兼容流式**中途不带 usage**，仅末尾 chunk 带 | 同上（`chunk.usage` 仅在最终 chunk 处理） |
-| Anthropic 流式会中途更新 `usage.output` | `pi-ai/dist/api/anthropic-messages.js` |
+| Anthropic 流式中 `usage.output` 仅在 `message_start`（初值）与 `message_delta` 赋值，`content_block_delta`（thinking/正文）不更新，实时 CUR 须用内容估算 | `pi-ai/dist/api/anthropic-messages.js` |
 | `usage.output` 含 reasoning/thinking tokens | `pi-ai/dist/types.d.ts` 的 `Usage.reasoning` 注释 |
 
 ## Commands
@@ -319,3 +319,4 @@ export default function (pi: ExtensionAPI) {
 | v1.6 | 2026-09-09 | 显示载体从 `setStatus` 改回 `setWidget`（`belowEditor`）：footer 把各扩展状态拼成一行并按宽度截尾，窄窗口必被截掉且无法折行；widget 独占行，`render(width)` 自适应——单行左对齐，放不下折成两行 |
 | v1.7 | 2026-09-09 | 着色对齐内置 footer：整行改用 `theme.fg("dim", …)`（默认前景色更亮，视觉上像字号更大），仅流式中的 CUR 保留 accent 高亮 |
 | v1.8 | 2026-09-09 | widget 独占行后去掉首尾 `·`：`· TTFT … · MIN … ·` → `TTFT … · MIN …`（`·` 仅作两组指标的内部隔符） |
+| v1.9 | 2026-10-13 | 修复 `anthropic-messages` 协议流式中 thinking / 正文阶段 CUR 不显示：实时 tokens 按 `message.api` 分流（`liveOutputTokens`），Anthropic 流式一律用内容估算，`usage.output` 仅在 message_end 校正；OpenAI 口径不变 |

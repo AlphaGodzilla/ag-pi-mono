@@ -18,7 +18,7 @@ import {
   computeTps,
   createLatencyStats,
   createStats,
-  estimateTokensFromContent,
+  liveOutputTokens,
   formatLatencyText,
   formatTpsParts,
   recordLatency,
@@ -147,9 +147,8 @@ export default function (pi: ExtensionAPI) {
         pendingTtftMs = requestAt !== null ? now - requestAt : null;
       }
 
-      // 部分 provider（如 Anthropic）流式中就带精确 usage；其余用字符估算
-      const tokens =
-        message.usage.output > 0 ? message.usage.output : estimateTokensFromContent(message.content);
+      // 流式中的实时 tokens 口径随协议而定（见 liveOutputTokens）；精确值只在 message_end 校正
+      const tokens = liveOutputTokens(message.api, message.usage.output, message.content);
       // 上一分支保证非 null；显式收敛一次（TS 不跨别名条件收窄 let）
       const deltaStartAt = firstDeltaAt!;
       liveTps = computeTps(tokens, now - deltaStartAt);

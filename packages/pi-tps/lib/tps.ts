@@ -115,6 +115,27 @@ function safeJson(value: unknown): string {
   }
 }
 
+/**
+ * 流式中某一时刻的累计输出 tokens（用于实时 CUR）。
+ *
+ * 协议差异是这里的依据：
+ * - `openai-completions`：流式中 `usage` 通常不带或为 0，仅末尾 chunk 才有精确值，
+ *   因此 `usage.output > 0` 时采信它，否则回退到内容估算。
+ * - `anthropic-messages`：流式的 content_block_delta（thinking / 正文）不更新 `usage`，
+ *   `usage.output` 仅在 message_start / message_delta 赋值，不能作为实时计数；流式中一律用内容估算，
+ *   精确值只在 message_end 校正。
+ *
+ * 未知协议按 OpenAI 口径处理（保持既有行为）。
+ */
+export function liveOutputTokens(
+  api: string | undefined,
+  usageOutput: number,
+  blocks: readonly PartialBlock[] | undefined,
+): number {
+  if (api === "anthropic-messages") return estimateTokensFromContent(blocks);
+  return usageOutput > 0 ? usageOutput : estimateTokensFromContent(blocks);
+}
+
 export function formatValue(value: number | null | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "--";
 }
