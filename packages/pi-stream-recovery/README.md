@@ -35,7 +35,7 @@ Network error [pi-stream-recovery]: <完整原始错误>
 
 ```json
 {
-  "packages": ["ag-pi-mono/packages/pi-stream-recovery"]
+  "packages": ["../ag-pi-mono/packages/pi-stream-recovery"]
 }
 ```
 

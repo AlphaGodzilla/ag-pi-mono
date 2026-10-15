@@ -37,16 +37,16 @@ pnpm --filter @alphagodzilla/pi-tps test   # 单包
 
 pi 通过 `~/.pi/agent/settings.json` 的 `packages` 数组按路径加载本地包，包内由 `package.json` 的 `pi` manifest 决定加载哪些 `extensions` / `skills`。
 
-`~/.pi/agent/settings.json` 的 `packages` 以目录形式指向本仓的各包：
+`~/.pi/agent/settings.json` 的 `packages` 以目录形式指向本仓的各包（相对 agentDir 解析，本仓在 `~/.pi/` 下故写作 `../ag-pi-mono/...`）：
 
 ```json
-"ag-pi-mono/packages/pi-llm-provider-balance",
-"ag-pi-mono/packages/pi-docs-gate",
-"ag-pi-mono/packages/pi-gen-commit-msg-zh",
-"ag-pi-mono/packages/pi-lazy-skill",
-"ag-pi-mono/packages/pi-remote-notify",
-"ag-pi-mono/packages/pi-skills-gate",
-"ag-pi-mono/packages/pi-tps"
+"../ag-pi-mono/packages/pi-llm-provider-balance",
+"../ag-pi-mono/packages/pi-docs-gate",
+"../ag-pi-mono/packages/pi-gen-commit-msg-zh",
+"../ag-pi-mono/packages/pi-lazy-skill",
+"../ag-pi-mono/packages/pi-remote-notify",
+"../ag-pi-mono/packages/pi-skills-gate",
+"../ag-pi-mono/packages/pi-tps"
 ```
 
 `pi-cmux` 与 `pi-context-watchdog` 目前不在 `packages` 中（也不在自动扫描的 `extensions/` 目录里），因此 pi 不会加载它们；需要启用时再追加 `ag-pi-mono/packages/pi-cmux`、`ag-pi-mono/packages/pi-context-watchdog`。

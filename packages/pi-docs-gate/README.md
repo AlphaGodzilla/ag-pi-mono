@@ -53,13 +53,13 @@ skill 的"文档位置"一节**不写死任何主机路径**,也不做任何运�
 
 本目录是**标准 pi package**(`package.json` 含 `pi` manifest 与 `pi-package` keyword,声明 `extensions` 与 `skills` 资源),不放在 `extensions/`,通过 `settings.json` 注册目录即可按 package 规则加载:
 
-1. 本包位于 `~/.pi/agent/ag-pi-mono/packages/pi-docs-gate`。
+1. 本包位于 `~/.pi/ag-pi-mono/packages/pi-docs-gate`。
 2. 在 `~/.pi/agent/settings.json` 的 `packages` 数组中声明:
 
    ```json
    "packages": [
      ...
-     "ag-pi-mono/packages/pi-docs-gate"
+     "../ag-pi-mono/packages/pi-docs-gate"
    ]
    ```
 
@@ -84,7 +84,7 @@ skill 的"文档位置"一节**不写死任何主机路径**,也不做任何运�
 
 ## 卸载
 
-从 `~/.pi/agent/settings.json` 的 `packages` 移除 `"ag-pi-mono/packages/pi-docs-gate"`(或删除该包目录)即可恢复内置段落;包内 `pi-docs` skill 随包一并卸载(静态文件,无任何残留状态)。
+从 `~/.pi/agent/settings.json` 的 `packages` 移除 `"../ag-pi-mono/packages/pi-docs-gate"`(或删除该包目录)即可恢复内置段落;包内 `pi-docs` skill 随包一并卸载(静态文件,无任何残留状态)。
 
 ## 注意事项
 

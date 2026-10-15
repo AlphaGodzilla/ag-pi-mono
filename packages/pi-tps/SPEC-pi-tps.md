@@ -74,7 +74,7 @@
 |---|---|
 | 单元测试 | `cd pi-tps && node --test`（Node ≥22.18 默认 TS type-stripping，已实测可用） |
 | 离线接线验证 | `cd pi-tps && node scripts/verify-wiring.mjs`（jiti + fake pi 模拟事件流，无需启动 pi） |
-| 快速手动加载（不改配置） | `pi -e ~/.pi/agent/pi-tps/index.ts` |
+| 快速手动加载（不改配置） | `pi -e ~/.pi/ag-pi-mono/packages/pi-tps/index.ts` |
 | 正式加载 | 在 `~/.pi/agent/settings.json` 的 `packages` 数组追加 `"pi-tps"`，重启 pi |
 | 热重载 | pi TUI 内输入 `/reload` |
 | 手动观察验收 | 正常对话，观察 editor 与 footer 之间的 `TTFT · MIN/MAX/AVG/CUR` 行变化 |
@@ -83,7 +83,7 @@
 ## Project Structure
 
 ```
-~/.pi/agent/pi-tps/
+~/.pi/ag-pi-mono/packages/pi-tps/
 ├── SPEC.md              # 本插件的规格索引（仅索引，不承载业务规格）
 ├── SPEC-pi-tps.md       # 本模块规格（本文件）
 ├── plan.md              # 实施计划

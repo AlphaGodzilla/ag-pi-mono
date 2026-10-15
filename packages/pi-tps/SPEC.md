@@ -1,6 +1,6 @@
 # Spec Index: pi-tps
 
-本目录（`~/.pi/agent/pi-tps/`）承载 pi-tps 插件的全部规格、计划与任务产物。
+本目录（`~/.pi/ag-pi-mono/packages/pi-tps/`）承载 pi-tps 插件的全部规格、计划与任务产物。
 `SPEC.md` 仅作索引，不承载业务规格；具体规格在下列子文件中。
 
 | 文件 | 一句话说明 |

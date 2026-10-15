@@ -28,7 +28,7 @@ MIN 12.4 MAX 48.7 AVG 25.0 CUR 31.2 t/s
 ```
 
 - 启动 pi 自动加载；修改代码后可在 pi TUI 内 `/reload` 热重载。
-- 临时试跑（不改配置）：`pi -e ~/.pi/agent/pi-tps/index.ts`
+- 临时试跑（不改配置）：`pi -e ~/.pi/ag-pi-mono/packages/pi-tps/index.ts`
 - 校验包解析：`pi list | grep -A1 pi-tps`
 
 ## 口径与语义
@@ -51,7 +51,7 @@ MIN 12.4 MAX 48.7 AVG 25.0 CUR 31.2 t/s
 ## 命令
 
 ```bash
-cd ~/.pi/agent/pi-tps
+cd ~/.pi/ag-pi-mono/packages/pi-tps
 node --test                  # 纯逻辑单元测试（39 个用例）
 node scripts/verify-wiring.mjs   # 离线接线验证（jiti + fake pi，无需启动 pi）
 ```

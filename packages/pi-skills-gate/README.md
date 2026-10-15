@@ -76,13 +76,13 @@ before_agent_start
 
 本目录是**标准 pi package**，不放在 `extensions/` 下，通过 `settings.json` 注册目录加载：
 
-1. 本包位于 `~/.pi/agent/ag-pi-mono/packages/pi-skills-gate`；
+1. 本包位于 `~/.pi/ag-pi-mono/packages/pi-skills-gate`；
 2. 在 `~/.pi/agent/settings.json` 的 `packages` 数组中声明（顺序无所谓，与 `pi-docs-gate` 无耦合）：
 
    ```json
    "packages": [
      ...
-     "ag-pi-mono/packages/pi-skills-gate"
+     "../ag-pi-mono/packages/pi-skills-gate"
    ]
    ```
 
@@ -102,7 +102,7 @@ before_agent_start
 
 ## 卸载
 
-从 `settings.json` 的 `packages` 移除 `"ag-pi-mono/packages/pi-skills-gate"` 即可恢复内置 skills 段；本包无任何运行状态或配置残留。
+从 `settings.json` 的 `packages` 移除 `"../ag-pi-mono/packages/pi-skills-gate"` 即可恢复内置 skills 段；本包无任何运行状态或配置残留。
 
 ## 注意事项
 
