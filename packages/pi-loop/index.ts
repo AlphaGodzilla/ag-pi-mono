@@ -301,7 +301,7 @@ export default function piLoop(pi: ExtensionAPI): void {
   // ── 命令 ───────────────────────────────────────────────────────────────
 
   pi.registerCommand("loop", {
-    description: "循环模式：/loop 5m <task> | /loop event <channel> <task> | /loop <task> | /loop stop",
+    description: "循环模式：/loop 5m <task> | /loop event <channel> <task> | /loop cron \"<expr>\" <task> | /loop <task> | /loop stop",
     handler: async (args, ctx) => {
       latestCtx = ctx
       const usage = [...LOOP_USAGE, `  退出：${exitKeyLabel} 或 /loop stop`].join("\n")

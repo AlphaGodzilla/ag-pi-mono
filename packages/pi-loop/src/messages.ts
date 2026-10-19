@@ -12,6 +12,7 @@ import type { IterationRequest, LoopSnapshot, ReportOutcome } from "./loop-machi
 function rhythmPhrase(snapshot: LoopSnapshot | IterationRequest): string {
   if (snapshot.mode === "interval") return `every ${formatDuration(snapshot.intervalMs ?? 0)}`
   if (snapshot.mode === "event") return `on event "${snapshot.channel ?? "?"}"`
+  if (snapshot.mode === "cron") return `cron "${snapshot.cronExpr ?? "?"}"`
   return "self-paced (next iteration starts after the report)"
 }
 

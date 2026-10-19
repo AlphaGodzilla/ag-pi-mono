@@ -2,7 +2,7 @@
 
 pi 扩展：让会话以**无人值守的循环**运行，用法对齐 Claude Code 的 `/loop`。循环期间人类输入框被锁死，页面常驻显示退出快捷键；每一轮由主 agent 调度 pi-interactive-subagents 派 subagent 干活，主 agent 自己只负责下发任务、判读结果、写摘要并推动节奏。
 
-本文面向要使用或维护本扩展的人与模型。全文顺序：快速开始 → 三种模式 → 一轮的生命周期 → 与 pi-interactive-subagents 的联动 → 输入锁定与退出 → 命令与工具 → 配置 → 状态面板 → 边界与限制 → 开发。
+本文面向要使用或维护本扩展的人与模型。全文顺序：快速开始 → 四种模式 → 一轮的生命周期 → 与 pi-interactive-subagents 的联动 → 输入锁定与退出 → 命令与工具 → 配置 → 状态面板 → 边界与限制 → 开发。
 
 ## 快速开始
 
@@ -11,33 +11,43 @@ pi 扩展：让会话以**无人值守的循环**运行，用法对齐 Claude Co
 #   "../ag-pi-mono/packages/pi-loop"
 /loop 5m check the deploy             # 每轮报告后等 5 分钟再开下一轮
 /loop event tasks:created process the backlog   # channel 有事件时跑一轮（轮内事件合并到下一轮）
+/loop cron "*/5 * * * *" check the deploy       # 按绝对钟点触发：每 5 分钟整点跑一轮
 /loop finish the release              # 自定节拍：上一轮报告后立刻开下一轮
 /loop status                          # 查看状态
 ```
 
 启动后输入框被锁定，编辑器上方出现 `pi-loop` 面板并常驻提示退出键（默认 `ctrl+shift+l`）。按该键（或执行 `/loop stop`）退出并恢复输入。
 
-## 三种模式
+## 四种模式
 
 | 模式 | 触发 | 下一次何时开始 |
 | --- | --- | --- |
 | `interval`（`/loop 5m <task>`） | 启动即跑第一轮 | 每轮报告后重新计时；报告可用 `nextDelayMs` 覆盖本次间隔 |
 | `event`（`/loop event <channel> <task>`） | 等待 `pi.events` 上同名 channel 的事件 | 报告后等下一个事件；轮内到达的事件排队合并，本轮结束立即补跑一轮 |
+| `cron`（`/loop cron "<expr>" <task>`） | 等下一个绝对钟点（**不**立即开跑） | 按本机时区算下一个匹配时刻；报告可用 `nextDelayMs` 覆盖一次 |
 | `self`（`/loop <task>`） | 启动即跑第一轮 | 报告后立即开下一轮（`nextDelayMs` 可加延时） |
 
-三种模式都**不重叠**：上一轮没结束（没收到报告、回合也没 settle）时不会开下一轮。主会话还在跑的时候到点的 tick 会推迟到空闲后再派发。
+四种模式都**不重叠**：上一轮没结束（没收到报告、回合也没 settle）时不会开下一轮。主会话还在跑的时候到点的 tick 会推迟到空闲后再派发。
+
+`cron` 的语义（与 crontab 对齐）：
+
+- 5 段表达式：分 时 日 月 周，支持 `*`、`*/n`、`a-b`、`a-b/n`、`a,b`、`a/n`；不支持 `@daily` 等宏与秒级字段；
+- 时间是**本机时区**的绝对钟点，不再受「上一轮耗时」影响：`"*/5 * * * *"` 就是 `:00/:05/:10…`；
+- 到点时上一轮还在跑 → **跳过该次**，不排队补跑；
+- 「日」与「周」同时被限制时取**或**（Vixie cron 语义）；
+- 夏令时跳过的不存在时刻直接跳过；启动时若表达式在 8 年内都不会触发（如 `0 0 30 2 *`）直接报错。
 
 ## 一轮的生命周期
 
 ```
 /loop 5m <task>
    │
-   ├─ 锁输入 + 面板 + （事件模式）订阅 channel
+   ├─ 锁输入 + 面板 + （事件模式）订阅 channel；cron / event 先等触发时刻
    ├─ pi 发一条 loop_iteration 消息 → 触发主 agent 一个回合
    │     └─ 主 agent：调 subagent 派活 → 结束回合
    ├─ subagent 在后台跑 → 结果自动 steer 回主 agent → 新回合
    │     └─ 主 agent：判读结果 + 写摘要 → 调 loop_report
-   ├─ loop_report 通过 → 按模式排下一轮（间隔 / 立即 / 等事件）
+   ├─ loop_report 通过 → 按模式排下一轮（间隔 / 下一个钟点 / 等事件 / 立即）
    └─ loop_report({ keepGoing: false }) 或 退出快捷键 / `/loop stop` → 解锁输入
 ```
 
@@ -92,6 +102,7 @@ pi-interactive-subagents 缺席时 `runningSubagentCount()` 返回 0，循环退
 | --- | --- |
 | `/loop <interval> <task>` | 固定间隔启动：每轮报告后等该间隔再开下一轮；支持 `30s`、`5m`、`1h30m`、`1.5h`，下限由 `minIntervalMs` 控制 |
 | `/loop event <channel> <task>` | 事件驱动启动：channel 有事件时开一轮，轮内事件合并到下一轮（上限 `maxQueuedEvents`） |
+| `/loop cron "<5 段表达式>" <task>` | 按本机时区的绝对钟点触发；表达式也可不加引号（固定取前 5 个 token） |
 | `/loop <task>` | 自定节拍启动 |
 | `/loop` / `/loop status` | 未运行时显示用法，运行时显示状态 |
 | `/loop stop` | 停止并解锁输入 |
@@ -120,9 +131,9 @@ pi-interactive-subagents 缺席时 `runningSubagentCount()` 返回 0，循环退
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `exitKeys` | `["ctrl+shift+l"]` | 退出快捷键，可多个；第一个同时注册为 pi 快捷键 |
-| `minIntervalMs` | `1000` | 固定间隔下限，防止手滑把 token 烧光 |
+| `minIntervalMs` | `1000` | 固定间隔模式的下限，防止手滑把 token 烧光；cron / 事件 / 自定节拍不适用 |
 | `cycleWarnMs` | `900000` | 单轮超过该时长只告警（面板标记 long-running），不打断回合；`0` 关闭 |
-| `abortCooldownMs` | `30000` | 用户 Esc 中断回合后，下一次迭代的间隔；任何模式都会覆盖本次节奏 |
+| `abortCooldownMs` | `30000` | 用户 Esc 中断回合后，下一次迭代的间隔；interval 与 self 会覆盖本次节奏，cron 仍按绝对钟点 |
 | `implicitSettleDelayMs` | `3000` | 模型忘调 `loop_report` 时，自定节拍模式的兜底推进间隔 |
 | `maxQueuedEvents` | `5` | 事件模式下积压事件的记录上限，超出只计数 |
 
@@ -130,7 +141,7 @@ pi-interactive-subagents 缺席时 `runningSubagentCount()` 返回 0，循环退
 
 ## 状态面板
 
-编辑器上方的面板（5～6 行，有上一轮摘要时多一行）常驻显示：任务、节奏与当前状态（`iteration N running` / `next at HH:MM:SS` / `waiting for event`）、上一轮摘要、以及 `🔒 input locked — press <exitKey> to exit the loop`。footer 状态栏同步显示紧凑版本（`loop · it 3 running · next 12:03:45`）。
+编辑器上方的面板（5～6 行，有上一轮摘要时多一行）常驻显示：任务、节奏（`every 5m` / `on event tasks:created` / `cron "*/5 * * * *"` / `self-paced`）与当前状态（`iteration N running` / `next at HH:MM:SS` / `waiting for event`）、上一轮摘要、以及 `🔒 input locked — press <exitKey> to exit the loop`。footer 状态栏同步显示紧凑版本（`loop · it 3 running · next 12:03:45`）。
 
 一轮派发出去后，页面上同时能看到：新的 subagent pane（由 pi-interactive-subagents 打开、不抢焦点）、主 agent 的 `Subagents` 状态栏里该 agent 的实时状态（`starting` / `active` / `waiting` / `stalled`）、以及本扩展的 `pi-loop` 面板。两者用的是不同的 widget key，互不覆盖。
 
@@ -158,6 +169,7 @@ pnpm check                                  # 全仓 typecheck + test
 | `index.ts` | 扩展接线：命令、快捷键、`loop_report` 工具、事件钩子、面板与输入锁定 |
 | `src/loop-machine.ts` | 循环状态机（纯逻辑，定时器 / 时钟 / send 全部可注入） |
 | `src/args.ts` / `src/duration.ts` | `/loop` 参数与时长解析 |
+| `src/cron.ts` | 5 段 cron 表达式解析与「下一个绝对触发时刻」计算（Vixie 语义） |
 | `src/messages.ts` | 每轮指令、系统提示词段落、`loop_report` 回执 |
 | `src/input-lock.ts` | 键序列解析：哪些键算人类输入、哪个键是退出键 |
 | `src/ui.ts` | 面板、状态行、transcript 自定义消息渲染 |

@@ -46,6 +46,40 @@ test("/loop event tasks:created process the backlog → 事件驱动", () => {
   })
 })
 
+test('/loop cron "*/5 * * * *" check the deploy → cron 模式（带引号）', () => {
+  const parsed = parseLoopCommand('cron "*/5 * * * *" check the deploy')
+  assert.equal(parsed.kind, "start")
+  if (parsed.kind !== "start") return
+  assert.equal(parsed.spec.mode, "cron")
+  assert.equal(parsed.spec.task, "check the deploy")
+  assert.equal(parsed.spec.cron?.expr, "*/5 * * * *")
+  assert.deepEqual(parsed.spec.cron?.minutes, [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55])
+})
+
+test("/loop cron 不带引号：前 5 个 token 当表达式", () => {
+  const parsed = parseLoopCommand("cron 0 9 * * 1-5 梳理夜间构建失败")
+  assert.equal(parsed.kind, "start")
+  if (parsed.kind !== "start") return
+  assert.equal(parsed.spec.cron?.expr, "0 9 * * 1-5")
+  assert.equal(parsed.spec.task, "梳理夜间构建失败")
+})
+
+test("/loop cron 的非法输入给出可执行的原因", () => {
+  const cases: Array<[string, RegExp]> = [
+    ["cron", /需要表达式与 task/],
+    ["cron */5 * * *", /需要 5 段表达式与 task/],
+    ['cron "*/5 * * * *"', /缺少 task/],
+    ['cron "*/5 * * *', /缺少收尾引号/],
+    ['cron "60 * * * *" 检查', /cron 表达式无效.*out of range/],
+    ['cron "0 0 30 2 *" 检查', /在未来 8 年内不会触发/],
+  ]
+  for (const [args, pattern] of cases) {
+    const parsed = parseLoopCommand(args)
+    assert.equal(parsed.kind, "error", `expected ${JSON.stringify(args)} to fail`)
+    if (parsed.kind === "error") assert.match(parsed.message, pattern)
+  }
+})
+
 test("/loop finish the release → 自定节拍（整条参数就是任务）", () => {
   const parsed = parseLoopCommand("finish the release")
   assert.deepEqual(parsed, {
@@ -87,6 +121,7 @@ test("用法文本逐行锁定：抬头 + 三种模式 + 状态/停止/事件命
     "pi-loop 用法:",
     "  /loop 5m <task>              报告后等 5m 再开下一轮（支持 30s / 90s / 2h30m）",
     "  /loop event <channel> <task>  channel 有事件时开一轮，轮内事件合并到下一轮",
+    '  /loop cron "<5 段表达式>" <task>  按本机时区的绝对钟点触发（如 "*/5 * * * *"）',
     "  /loop <task>                  自定节拍：上一轮报告后立即开始下一轮",
     "  /loop status                  查看当前 loop 状态",
     "  /loop stop                    停止 loop 并解锁输入",

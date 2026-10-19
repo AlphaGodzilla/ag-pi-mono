@@ -20,6 +20,7 @@
  */
 
 import type { LoopMode, LoopSpec } from "./args.ts"
+import { nextCronTime } from "./cron.ts"
 
 export type { LoopMode, LoopSpec }
 
@@ -42,6 +43,8 @@ export interface IterationRequest {
   task: string
   intervalMs?: number
   channel?: string
+  /** mode === "cron" 时的规范化表达式 */
+  cronExpr?: string
   trigger: TriggerKind
   events: QueuedEvents
   exitKeyLabel: string
@@ -53,6 +56,8 @@ export interface LoopSnapshot {
   task?: string
   intervalMs?: number
   channel?: string
+  /** mode === "cron" 时的规范化表达式 */
+  cronExpr?: string
   iteration: number
   completed: number
   cycle: CycleState
@@ -104,6 +109,8 @@ export interface LoopMachineOptions {
   canDispatch?: () => boolean
   /** 忙碌时重试派发的间隔 */
   dispatchGateMs?: number
+  /** 单次定时器最长时长；超过则分段续期（setTimeout 超过 2^31-1ms 会立即触发） */
+  maxTimerChunkMs?: number
   /** 本会话是否具备派发 subagent 的能力（`subagent` 工具可用） */
   expectDispatch?: () => boolean
   /** 本轮是否已经真的通过 `subagent` 工具派发过 */
@@ -160,6 +167,7 @@ export function createLoopMachine(options: LoopMachineOptions): LoopMachine {
   const cycleWarnMs = Math.max(0, options.cycleWarnMs ?? 0)
   const exitKeyLabel = options.exitKeyLabel ?? "ctrl+shift+l"
   const dispatchGateMs = Math.max(50, options.dispatchGateMs ?? 500)
+  const maxTimerChunkMs = Math.max(1, options.maxTimerChunkMs ?? 300_000)
   const canDispatch = options.canDispatch ?? (() => true)
 
   const state: InternalState = {
@@ -182,6 +190,7 @@ export function createLoopMachine(options: LoopMachineOptions): LoopMachine {
       ...(state.spec ? { mode: state.spec.mode, task: state.spec.task } : {}),
       ...(state.spec?.intervalMs !== undefined ? { intervalMs: state.spec.intervalMs } : {}),
       ...(state.spec?.channel !== undefined ? { channel: state.spec.channel } : {}),
+      ...(state.spec?.cron ? { cronExpr: state.spec.cron.expr } : {}),
       iteration: state.iteration,
       completed: state.completed,
       cycle: state.cycle,
@@ -269,6 +278,7 @@ export function createLoopMachine(options: LoopMachineOptions): LoopMachine {
       task: spec.task,
       ...(spec.intervalMs !== undefined ? { intervalMs: spec.intervalMs } : {}),
       ...(spec.channel !== undefined ? { channel: spec.channel } : {}),
+      ...(spec.cron ? { cronExpr: spec.cron.expr } : {}),
       trigger: kind,
       events,
       exitKeyLabel,
@@ -277,14 +287,28 @@ export function createLoopMachine(options: LoopMachineOptions): LoopMachine {
     options.onChange()
   }
 
-  function schedule(delayMs: number): void {
+  /**
+   * 分段续期：Node 的 setTimeout 超过 2^31-1ms（约 24.8 天）会立刻触发，
+   * 而 cron 的「每月 1 号」这类间隔可能更久，因此按时长切片重复挂表。
+   */
+  function armNextTimer(): void {
     clearNextTimer()
-    const delay = Math.max(0, Math.round(delayMs))
-    state.nextTickAt = now() + delay
+    const target = state.nextTickAt
+    if (target === undefined) return
+    const remaining = target - now()
     nextTimer = setTimer(() => {
       nextTimer = undefined
+      if ((state.nextTickAt ?? 0) > now()) {
+        armNextTimer()
+        return
+      }
       trigger("timer")
-    }, delay)
+    }, Math.min(Math.max(0, remaining), maxTimerChunkMs))
+  }
+
+  function schedule(delayMs: number): void {
+    state.nextTickAt = now() + Math.max(0, Math.round(delayMs))
+    armNextTimer()
     options.onChange()
   }
 
@@ -332,6 +356,21 @@ export function createLoopMachine(options: LoopMachineOptions): LoopMachine {
       return
     }
 
+    if (spec.mode === "cron") {
+      if (input.nextDelayMs !== undefined) {
+        schedule(input.nextDelayMs)
+        return
+      }
+      const next = spec.cron ? nextCronTime(spec.cron, now()) : undefined
+      if (next === undefined) {
+        options.warn?.(`[pi-loop] cron expression "${spec.cron?.expr ?? "?"}" has no future run; stopping the loop.`)
+        stop("error")
+        return
+      }
+      schedule(next - now())
+      return
+    }
+
     const fallback = spec.mode === "interval" ? (spec.intervalMs ?? 0) : 0
     schedule(input.nextDelayMs ?? fallback)
   }
@@ -357,6 +396,17 @@ export function createLoopMachine(options: LoopMachineOptions): LoopMachine {
     if (spec.mode === "event") {
       // 事件驱动：等第一件事发生，不主动开跑
       options.onChange()
+      return
+    }
+    if (spec.mode === "cron") {
+      // cron 按绝对钟点：等下一个触发时刻，不立即开跑
+      const next = spec.cron ? nextCronTime(spec.cron, state.startedAt ?? now()) : undefined
+      if (next === undefined) {
+        options.warn?.(`[pi-loop] cron expression "${spec.cron?.expr ?? "?"}" has no future run; nothing to schedule.`)
+        stop("error")
+        return
+      }
+      schedule(next - (state.startedAt ?? now()))
       return
     }
     trigger("kickoff")
@@ -411,7 +461,15 @@ export function createLoopMachine(options: LoopMachineOptions): LoopMachine {
     const aborted = input.aborted === true
     // 固定间隔模式下隐式报告仍走 interval；自定节拍与中断才用兜底延迟，
     // 避免模型忘调 loop_report 时变成忙等循环。
-    const nextDelayMs = aborted ? abortCooldownMs : state.spec?.mode === "self" ? implicitSettleDelayMs : undefined
+    // cron 按绝对钟点，冷启动/中断都不改节奏；其余模式按中断冷却与自定节拍兜底。
+    const nextDelayMs =
+      state.spec?.mode === "cron"
+        ? undefined
+        : aborted
+          ? abortCooldownMs
+          : state.spec?.mode === "self"
+            ? implicitSettleDelayMs
+            : undefined
     finishCycle({
       keepGoing: true,
       summary: state.lastSummary ?? "(iteration ended without loop_report)",

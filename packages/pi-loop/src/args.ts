@@ -7,9 +7,10 @@
  *   /loop | /loop status | /loop stop      → 状态 / 停止
  */
 
+import { hasUpcomingRun, parseCronExpression, type CronSpec } from "./cron.ts"
 import { parseDuration } from "./duration.ts"
 
-export type LoopMode = "interval" | "event" | "self"
+export type LoopMode = "interval" | "event" | "cron" | "self"
 
 export interface LoopSpec {
   mode: LoopMode
@@ -19,6 +20,8 @@ export interface LoopSpec {
   intervalMs?: number
   /** mode === "event" 时订阅的 pi.events channel */
   channel?: string
+  /** mode === "cron" 时解析好的 5 段表达式 */
+  cron?: CronSpec
   /** 用户原始参数，用于状态面板回显 */
   rawArgs: string
 }
@@ -34,6 +37,7 @@ export const LOOP_USAGE: readonly string[] = [
   "pi-loop 用法:",
   "  /loop 5m <task>              报告后等 5m 再开下一轮（支持 30s / 90s / 2h30m）",
   "  /loop event <channel> <task>  channel 有事件时开一轮，轮内事件合并到下一轮",
+  '  /loop cron "<5 段表达式>" <task>  按本机时区的绝对钟点触发（如 "*/5 * * * *"）',
   "  /loop <task>                  自定节拍：上一轮报告后立即开始下一轮",
   "  /loop status                  查看当前 loop 状态",
   "  /loop stop                    停止 loop 并解锁输入",
@@ -43,6 +47,37 @@ export const LOOP_USAGE: readonly string[] = [
 const STOP_WORDS = new Set(["stop", "off", "end", "cancel"])
 const HELP_WORDS = new Set(["help", "-h", "--help", "usage"])
 const STATUS_WORDS = new Set(["status", "state", "info"])
+
+/**
+ * 拆出 cron 表达式与 task。
+ *
+ * 两种写法都收：带引号的 `cron "<表达式>" <task>`（推荐，无歧义），以及不带引号、
+ * 把前 5 个 token 当表达式的写法（cron 表达式固定 5 段，按 token 数切分是安全的）。
+ * 非法表达式会在解析器里报出具体字段错误。
+ */
+export function splitCronArgs(rest: string): { ok: true; expr: string; task: string } | { ok: false; reason: string } {
+  const text = rest.trim()
+  if (!text) return { ok: false, reason: 'cron 模式需要表达式与 task：/loop cron "*/5 * * * *" <task>' }
+
+  const quote = text[0]
+  if (quote === '"' || quote === "'") {
+    const end = text.indexOf(quote, 1)
+    if (end === -1) return { ok: false, reason: "cron 表达式缺少收尾引号" }
+    const expr = text.slice(1, end).trim()
+    const task = text.slice(end + 1).trim()
+    if (!expr) return { ok: false, reason: "cron 表达式为空" }
+    if (!task) return { ok: false, reason: "缺少 task" }
+    return { ok: true, expr, task }
+  }
+
+  const tokens = text.split(/\s+/)
+  if (tokens.length < 6) {
+    return { ok: false, reason: 'cron 模式需要 5 段表达式与 task：/loop cron "*/5 * * * *" <task>' }
+  }
+  const expr = tokens.slice(0, 5).join(" ")
+  const task = tokens.slice(5).join(" ")
+  return { ok: true, expr, task }
+}
 
 export function parseLoopCommand(rawArgs: string): LoopCommand {
   const raw = rawArgs ?? ""
@@ -56,6 +91,20 @@ export function parseLoopCommand(rawArgs: string): LoopCommand {
   if (STOP_WORDS.has(head)) return { kind: "stop" }
   if (STATUS_WORDS.has(head)) return { kind: "status" }
   if (HELP_WORDS.has(head)) return { kind: "help" }
+
+  if (head === "cron") {
+    const parsed = splitCronArgs(rest)
+    if (!parsed.ok) return { kind: "error", message: parsed.reason }
+    const expression = parseCronExpression(parsed.expr)
+    if (!expression.ok) return { kind: "error", message: `cron 表达式无效：${expression.reason}` }
+    if (!hasUpcomingRun(expression.spec, Date.now())) {
+      return { kind: "error", message: `cron 表达式 "${expression.spec.expr}" 在未来 8 年内不会触发` }
+    }
+    return {
+      kind: "start",
+      spec: { mode: "cron", cron: expression.spec, task: parsed.task, rawArgs: args },
+    }
+  }
 
   if (head === "event") {
     if (!rest) return { kind: "error", message: "event 模式需要 channel 与 task：/loop event <channel> <task>" }

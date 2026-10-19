@@ -51,6 +51,8 @@ function rhythmLabel(snapshot: LoopSnapshot): string {
       return `every ${formatDuration(snapshot.intervalMs ?? 0)}`
     case "event":
       return `on event ${snapshot.channel ?? "?"}`
+    case "cron":
+      return `cron ${snapshot.cronExpr ?? "?"}`
     case "self":
       return "self-paced"
     default:
@@ -131,7 +133,9 @@ export function formatStartNotice(snapshot: LoopSnapshot, exitKeyLabel: string):
       ? `every ${formatDuration(snapshot.intervalMs ?? 0)}`
       : snapshot.mode === "event"
         ? `on event ${snapshot.channel ?? "?"}`
-        : "self-paced"
+        : snapshot.mode === "cron"
+          ? `cron ${snapshot.cronExpr ?? "?"}`
+          : "self-paced"
   return {
     title: "pi-loop started",
     tone: "success",

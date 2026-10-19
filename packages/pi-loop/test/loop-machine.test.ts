@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 
 import type { LoopSpec } from "../src/args.ts"
+import { nextCronTime, parseCronExpression } from "../src/cron.ts"
 import {
   createLoopMachine,
   type IterationRequest,
@@ -43,6 +44,8 @@ function harness(overrides: Partial<LoopMachineOptions> = {}): Harness {
     runningSubagents: () => running,
     warn: (message) => warnings.push(message),
     now: () => now,
+    // 默认一次挂满，chunk 行为由专门用例覆盖
+    maxTimerChunkMs: 1_000_000_000,
     setTimer: (fn, delayMs) => {
       timerId += 1
       const timer: FakeTimer = { id: timerId, delay: delayMs, fn }
@@ -227,6 +230,78 @@ test("用户中断回合后按 abortCooldownMs 冷却（任何模式都覆盖本
   interval.machine.start(INTERVAL)
   interval.machine.onAgentSettled({ aborted: true })
   assert.equal(interval.nextDelay(), 30_000)
+})
+
+function cronSpec(expr: string) {
+  const parsed = parseCronExpression(expr)
+  if (!parsed.ok) throw new Error(parsed.reason)
+  return parsed.spec
+}
+
+test("cron：启动时等下一个绝对钟点，不立即开跑", () => {
+  const spec = cronSpec("*/5 * * * *")
+  const h = harness()
+  const startedAt = 1_700_000_000_000
+  h.machine.start({ mode: "cron", task: "check the deploy", cron: spec, rawArgs: "cron */5 * * * * check the deploy" })
+
+  assert.equal(h.sent.length, 0, "cron 不在启动时抢跑")
+  const expected = nextCronTime(spec, startedAt)!
+  assert.equal(h.machine.snapshot().nextTickAt, expected)
+  assert.equal(h.machine.snapshot().cronExpr, "*/5 * * * *")
+  assert.equal(h.nextDelay(), expected - startedAt)
+
+  h.advance(expected - startedAt)
+  assert.equal(h.sent.length, 1)
+  assert.equal(h.sent[0]?.trigger, "timer")
+  assert.equal(h.sent[0]?.cronExpr, "*/5 * * * *")
+})
+
+test("cron：报告后按绝对钟点排下一次；间隔由时钟决定而非轮次耗时", () => {
+  const spec = cronSpec("*/5 * * * *")
+  const h = harness()
+  h.machine.start({ mode: "cron", task: "t", cron: spec, rawArgs: "cron */5 * * * * t" })
+  const firstFire = h.machine.snapshot().nextTickAt!
+  h.advance(firstFire - 1_700_000_000_000)
+
+  // 这一轮「跑了 90 秒」后才报告
+  h.advance(90_000)
+  const reportAt = 1_700_000_000_000 + (firstFire - 1_700_000_000_000) + 90_000
+  h.machine.report({ summary: "ok", keepGoing: true })
+
+  const expected = nextCronTime(spec, reportAt)!
+  assert.equal(h.machine.snapshot().nextTickAt, expected)
+})
+
+test("cron：中断回合不套用 abortCooldown，仍按绝对钟点", () => {
+  const spec = cronSpec("0 * * * *")
+  const h = harness({ abortCooldownMs: 30_000 })
+  h.machine.start({ mode: "cron", task: "t", cron: spec, rawArgs: "cron 0 * * * * t" })
+  const fire = h.machine.snapshot().nextTickAt!
+  h.advance(fire - 1_700_000_000_000)
+
+  h.machine.onAgentSettled({ aborted: true })
+  assert.notEqual(h.nextDelay(), 30_000)
+  assert.equal(h.machine.snapshot().nextTickAt, nextCronTime(spec, fire)!)
+})
+
+test("cron：长间隔按 chunk 分段续期，不会一次性挂超长定时器", () => {
+  const spec = cronSpec("0 0 1 * *") // 每月 1 号，可能超过一个月
+  const chunk = 3_600_000
+  const h = harness({ maxTimerChunkMs: chunk })
+  h.machine.start({ mode: "cron", task: "t", cron: spec, rawArgs: "cron 0 0 1 * * t" })
+  const target = h.machine.snapshot().nextTickAt!
+  assert.ok(target - 1_700_000_000_000 > chunk, "下一次触发至少在一个 chunk 之外")
+  assert.equal(h.nextDelay(), chunk, "每次只挂一个 chunk")
+
+  // 走完所有 chunk 才真正触发（最后一段可能不足一个 chunk）
+  let steps = 0
+  while (h.sent.length === 0 && steps < 1_000) {
+    h.advance(chunk)
+    steps += 1
+  }
+  assert.equal(h.sent.length, 1)
+  const startedAt = h.machine.snapshot().cycleStartedAt!
+  assert.ok(startedAt >= target && startedAt < target + chunk, `fired at ${startedAt}, target ${target}`)
 })
 
 test("事件驱动：等事件才开跑；轮内事件排队并合并到下一轮", () => {
