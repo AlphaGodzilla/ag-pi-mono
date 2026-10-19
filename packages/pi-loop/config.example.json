@@ -1,0 +1,8 @@
+{
+  "exitKeys": ["ctrl+shift+l"],
+  "minIntervalMs": 1000,
+  "cycleWarnMs": 900000,
+  "abortCooldownMs": 30000,
+  "implicitSettleDelayMs": 3000,
+  "maxQueuedEvents": 5
+}
