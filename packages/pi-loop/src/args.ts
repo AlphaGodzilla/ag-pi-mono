@@ -32,8 +32,8 @@ export type LoopCommand =
 
 export const LOOP_USAGE: readonly string[] = [
   "pi-loop 用法:",
-  "  /loop 5m <task>              每 5m 一轮（支持 30s / 90s / 2h30m）",
-  "  /loop event <channel> <task>  订阅 pi.events 的 channel，每次事件触发一轮",
+  "  /loop 5m <task>              报告后等 5m 再开下一轮（支持 30s / 90s / 2h30m）",
+  "  /loop event <channel> <task>  channel 有事件时开一轮，轮内事件合并到下一轮",
   "  /loop <task>                  自定节拍：上一轮报告后立即开始下一轮",
   "  /loop status                  查看当前 loop 状态",
   "  /loop stop                    停止 loop 并解锁输入",

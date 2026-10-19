@@ -215,12 +215,18 @@ test("固定间隔模式下隐式报告仍用 interval，而不是兜底短延�
   assert.equal(h.nextDelay(), 300_000)
 })
 
-test("用户中断回合后按 abortCooldownMs 冷却，避免和用户抢", () => {
-  const h = harness({ abortCooldownMs: 30_000 })
-  h.machine.start(SELF)
-  h.machine.onAgentSettled({ aborted: true })
-  assert.equal(h.nextDelay(), 30_000)
-  assert.equal(h.machine.snapshot().lastOutcome, "aborted")
+test("用户中断回合后按 abortCooldownMs 冷却（任何模式都覆盖本次节奏）", () => {
+  const self = harness({ abortCooldownMs: 30_000 })
+  self.machine.start(SELF)
+  self.machine.onAgentSettled({ aborted: true })
+  assert.equal(self.nextDelay(), 30_000)
+  assert.equal(self.machine.snapshot().lastOutcome, "aborted")
+
+  // 固定间隔模式同样用冷却值，而不是 intervalMs
+  const interval = harness({ abortCooldownMs: 30_000 })
+  interval.machine.start(INTERVAL)
+  interval.machine.onAgentSettled({ aborted: true })
+  assert.equal(interval.nextDelay(), 30_000)
 })
 
 test("事件驱动：等事件才开跑；轮内事件排队并合并到下一轮", () => {

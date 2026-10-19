@@ -375,6 +375,39 @@ test("/loop-emit 把事件发到总线（手工触发事件模式）", async () 
   assert.ok(ui.notices.some((notice) => notice.includes("已发出事件")))
 })
 
+test("/loop-emit 的 payload 不是合法 JSON 时按 { text } 发送", async () => {
+  const { fake, ui, ctx } = setup()
+  await runLoopCommand(fake, ctx, "event tasks:created process the backlog")
+  await fake.commands.get("loop-emit")!.handler("tasks:created plain text payload", ctx)
+  const iteration = lastMessageOfType(fake, "loop_iteration")
+  assert.ok(iteration)
+  assert.match(String(iteration.content), /"text": "plain text payload"/)
+  assert.ok(ui.notices.some((notice) => notice.includes("已发出事件")))
+})
+
+test("/loop 无参数：空闲时打印用法（含运行时追加的退出键行）", async () => {
+  const { fake, ui, ctx } = setup()
+  await runLoopCommand(fake, ctx, "")
+  const usageNotice = ui.notices.at(-1) ?? ""
+  assert.match(usageNotice, /pi-loop 用法:/)
+  assert.match(usageNotice, /\/loop event <channel> <task>/)
+  assert.match(usageNotice, /退出：ctrl\+shift\+l 或 \/loop stop/)
+  assert.equal(fake.messages.filter((message) => message.customType === "loop_iteration").length, 0)
+})
+
+test("/loop status 在运行中打印状态而不是用法", async () => {
+  const { fake, ui, ctx } = setup()
+  await runLoopCommand(fake, ctx, "3s check the deploy")
+  const before = ui.notices.length
+  await runLoopCommand(fake, ctx, "status")
+  const statusNotice = ui.notices[before] ?? ""
+  assert.match(statusNotice, /pi-loop 状态:/)
+  assert.match(statusNotice, /task {6}check the deploy/)
+  assert.match(statusNotice, /退出键 {4}ctrl\+shift\+l/)
+  assert.doesNotMatch(statusNotice, /用法:/)
+})
+
+
 test("loop 期间 ask_user_question 被 block，loop_report 与其它工具不受影响", async () => {
   const { fake, ui, ctx } = setup()
   const toolCall = fake.handlers.get("tool_call")?.[0]

@@ -9,8 +9,8 @@ pi 扩展：让会话以**无人值守的循环**运行，用法对齐 Claude Co
 ```bash
 # 登记：在 pi 的 settings.json 的 packages 里加一行（相对 agentDir 解析）
 #   "../ag-pi-mono/packages/pi-loop"
-/loop 5m check the deploy             # 每 5 分钟一轮
-/loop event tasks:created process the backlog   # 每来一个 tasks:created 事件跑一轮
+/loop 5m check the deploy             # 每轮报告后等 5 分钟再开下一轮
+/loop event tasks:created process the backlog   # channel 有事件时跑一轮（轮内事件合并到下一轮）
 /loop finish the release              # 自定节拍：上一轮报告后立刻开下一轮
 /loop status                          # 查看状态
 ```
@@ -90,8 +90,8 @@ pi-interactive-subagents 缺席时 `runningSubagentCount()` 返回 0，循环退
 
 | 名称 | 说明 |
 | --- | --- |
-| `/loop <interval> <task>` | 固定间隔启动；间隔支持 `30s`、`5m`、`1h30m`、`1.5h` |
-| `/loop event <channel> <task>` | 事件驱动启动 |
+| `/loop <interval> <task>` | 固定间隔启动：每轮报告后等该间隔再开下一轮；支持 `30s`、`5m`、`1h30m`、`1.5h`，下限由 `minIntervalMs` 控制 |
+| `/loop event <channel> <task>` | 事件驱动启动：channel 有事件时开一轮，轮内事件合并到下一轮（上限 `maxQueuedEvents`） |
 | `/loop <task>` | 自定节拍启动 |
 | `/loop` / `/loop status` | 未运行时显示用法，运行时显示状态 |
 | `/loop stop` | 停止并解锁输入 |
@@ -122,7 +122,7 @@ pi-interactive-subagents 缺席时 `runningSubagentCount()` 返回 0，循环退
 | `exitKeys` | `["ctrl+shift+l"]` | 退出快捷键，可多个；第一个同时注册为 pi 快捷键 |
 | `minIntervalMs` | `1000` | 固定间隔下限，防止手滑把 token 烧光 |
 | `cycleWarnMs` | `900000` | 单轮超过该时长只告警（面板标记 long-running），不打断回合；`0` 关闭 |
-| `abortCooldownMs` | `30000` | 用户 Esc 中断回合后，自定节拍模式的重试间隔 |
+| `abortCooldownMs` | `30000` | 用户 Esc 中断回合后，下一次迭代的间隔；任何模式都会覆盖本次节奏 |
 | `implicitSettleDelayMs` | `3000` | 模型忘调 `loop_report` 时，自定节拍模式的兜底推进间隔 |
 | `maxQueuedEvents` | `5` | 事件模式下积压事件的记录上限，超出只计数 |
 
@@ -130,7 +130,7 @@ pi-interactive-subagents 缺席时 `runningSubagentCount()` 返回 0，循环退
 
 ## 状态面板
 
-编辑器上方的面板（最多 5 行）常驻显示：任务、节奏与当前状态（`iteration N running` / `next at HH:MM:SS` / `waiting for event`）、上一轮摘要、以及 `🔒 input locked — press <exitKey> to exit the loop`。footer 状态栏同步显示紧凑版本（`loop · it 3 running · next 12:03:45`）。
+编辑器上方的面板（5～6 行，有上一轮摘要时多一行）常驻显示：任务、节奏与当前状态（`iteration N running` / `next at HH:MM:SS` / `waiting for event`）、上一轮摘要、以及 `🔒 input locked — press <exitKey> to exit the loop`。footer 状态栏同步显示紧凑版本（`loop · it 3 running · next 12:03:45`）。
 
 一轮派发出去后，页面上同时能看到：新的 subagent pane（由 pi-interactive-subagents 打开、不抢焦点）、主 agent 的 `Subagents` 状态栏里该 agent 的实时状态（`starting` / `active` / `waiting` / `stalled`）、以及本扩展的 `pi-loop` 面板。两者用的是不同的 widget key，互不覆盖。
 
