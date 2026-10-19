@@ -10,6 +10,7 @@ import type {
 import streamRecovery, { normalizeStreamError } from "../index.ts";
 
 const ERROR = "stream error: stream disconnected before completion: stream closed before response.completed";
+const GATEWAY_ERROR = "upstream stream closed before any chunk carried finish_reason";
 
 function failed(errorMessage = ERROR): AssistantMessage {
   return {
@@ -48,6 +49,37 @@ test("只忽略原文两端空白，仍保留原文；重复调用不再次添�
   assert.ok(replacement?.role === "assistant");
   assert.equal(replacement.errorMessage, `Network error [pi-stream-recovery]: ${message.errorMessage}`);
   assert.equal(normalizeStreamError(replacement), undefined);
+});
+
+test("网关提前断流（upstream stream closed ... finish_reason）同样归一化", () => {
+  assert.equal(isRetryableAssistantError(failed(GATEWAY_ERROR)), false);
+  for (const text of [
+    GATEWAY_ERROR,
+    `  ${GATEWAY_ERROR}\n`,
+    `Error: ${GATEWAY_ERROR}`,
+    `error:${GATEWAY_ERROR}`,
+    GATEWAY_ERROR.toUpperCase(),
+  ]) {
+    const message = failed(text);
+    const replacement = normalizeStreamError(message)?.message;
+    assert.ok(replacement?.role === "assistant", text);
+    assert.equal(replacement.errorMessage, `Network error [pi-stream-recovery]: ${text}`);
+    assert.equal(isRetryableAssistantError(replacement), true);
+    assert.equal(normalizeStreamError(replacement), undefined);
+  }
+});
+
+test("网关断流签名不做模糊匹配，其他措辞仍不处理", () => {
+  for (const error of [
+    "upstream stream closed",
+    "upstream stream closed before any chunk",
+    "stream closed before any chunk carried finish_reason",
+    "upstream stream closed before any chunk carried finish_reason: retry later",
+    "Error: upstream: stream closed before any chunk carried finish_reason",
+    "WebSocket upstream stream closed before any chunk carried finish_reason",
+  ]) {
+    assert.equal(normalizeStreamError(failed(error)), undefined, error);
+  }
 });
 
 test("原生已支持时不替换消息", () => {

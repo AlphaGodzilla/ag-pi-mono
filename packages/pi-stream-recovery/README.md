@@ -8,9 +8,10 @@
 
 ```text
 stream error: stream disconnected before completion: stream closed before response.completed
+upstream stream closed before any chunk carried finish_reason
 ```
 
-匹配时忽略文本两端的空白，替换后的消息仍保留完整原文：
+第一条按去空白后的原文精确比对。第二条由 OpenAI 兼容网关（如 opencode-go）在首个携带 `finish_reason` 的 chunk 之前断开连接时上报，比对时忽略大小写、文本两端空白，并允许文本前带一层 `Error:` 标签。两条签名命中任意一条即按同一规则归一化，替换后仍保留完整原文：
 
 ```text
 Network error [pi-stream-recovery]: <完整原始错误>

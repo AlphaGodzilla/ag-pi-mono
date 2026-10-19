@@ -16,6 +16,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 const ERROR = "stream error: stream disconnected before completion: stream closed before response.completed";
+const GATEWAY_ERROR = "upstream stream closed before any chunk carried finish_reason";
 const ENTRY = fileURLToPath(new URL("../index.ts", import.meta.url));
 
 async function harness(options: {
@@ -124,6 +125,22 @@ test("真实 SDK：断流后自动恢复；失败工具不执行、不进入重�
       e.message.errorMessage === `Network error [pi-stream-recovery]: ${ERROR}`));
     assert.ok(entries.some((e) => e.type === "context_edit"));
     assert.equal(entries.filter((e) => e.type === "message" && e.message.role === "user").length, 1);
+  } finally { h.close(); }
+});
+
+test("真实 SDK：网关提前断流（finish_reason）自动恢复，沿用同一套原生重试预算", async () => {
+  const h = await harness();
+  try {
+    h.faux.setResponses([failure(GATEWAY_ERROR), fauxAssistantMessage("recovered")]);
+    await h.session.prompt("run");
+    assert.equal(h.faux.state.callCount, 2);
+    assert.equal(h.toolExecutions(), 0);
+    assert.equal(h.session.getLastAssistantText(), "recovered");
+    assert.equal(h.events.filter((e) => e.type === "auto_retry_start").length, 1);
+    assert.ok(h.events.some((e) => e.type === "auto_retry_end" && e.success));
+    const entries = h.session.sessionManager.getBranch();
+    assert.ok(entries.some((e) => e.type === "message" && e.message.role === "assistant" &&
+      e.message.errorMessage === `Network error [pi-stream-recovery]: ${GATEWAY_ERROR}`));
   } finally { h.close(); }
 });
 
